@@ -1,0 +1,40 @@
+// يبني ملف HTML واحد مستقل: React + Tailwind + Lucide مضمنة بالكامل
+import { build } from 'esbuild';
+import { execSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+
+mkdirSync('dist', { recursive: true });
+const js = await build({
+  entryPoints: ['src/main.jsx'], bundle: true, minify: true, write: false, format: 'iife',
+  target: ['es2019', 'safari13'], jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' },
+});
+execSync('npx tailwindcss -i src/index.css -o dist/app.css --minify', { stdio: 'inherit' });
+const css = readFileSync('dist/app.css', 'utf8');
+const code = js.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
+
+const head = `<title>تتبع مصاريف الراتب</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@500;600;700&display=swap">
+<style>${css}</style>`;
+const body = `<div id="root" dir="rtl" lang="ar"></div>\n<script>${code}</script>`;
+
+// نسخة للعارض (بدون هيكل الصفحة)
+writeFileSync('dist/artifact.html', `${head}\n${body}\n`);
+// نسخة مستقلة تفتح مباشرة في المتصفح وتدعم الطباعة
+writeFileSync('index.html', `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e3a8a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+${head}
+</head>
+<body>
+${body}
+</body>
+</html>
+`);
+console.log('built', (code.length / 1024).toFixed(0) + 'KB js', (css.length / 1024).toFixed(0) + 'KB css');

@@ -1,0 +1,91 @@
+/* الطابع: سماء صافية فوق بحر عُمان — خلفية زرقاء فاتحة، أردوازي عميق، ولمسات محيطية */
+:root {
+  --bg: 240 244 248;        /* #f0f4f8 */
+  --surface: 255 255 255;
+  --surface2: 232 239 247;
+  --ink: 15 30 56;
+  --muted: 84 101 128;
+  --line: 214 225 238;
+  --brand: 30 58 138;       /* #1e3a8a */
+  --accent: 37 99 235;      /* قريب من #3b82f6 مع تباين أعلى للنص */
+  --ocean: 2 132 199;       /* #0284c7 */
+  --ocean-soft: 56 189 248;
+  --hero1: 30 58 138;
+  --hero2: 2 132 199;
+  --good: 5 150 105;
+  --warn: 217 119 6;
+  --bad: 220 38 38;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: 9 17 31; --surface: 15 27 47; --surface2: 23 39 66; --ink: 226 236 248; --muted: 150 168 194;
+    --line: 36 55 86; --brand: 129 160 245; --accent: 96 165 250; --ocean: 56 189 248; --ocean-soft: 125 211 252;
+    --hero1: 30 58 138; --hero2: 3 105 161; --good: 52 211 153; --warn: 251 191 36; --bad: 248 113 113;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: 9 17 31; --surface: 15 27 47; --surface2: 23 39 66; --ink: 226 236 248; --muted: 150 168 194;
+  --line: 36 55 86; --brand: 129 160 245; --accent: 96 165 250; --ocean: 56 189 248; --ocean-soft: 125 211 252;
+  --hero1: 30 58 138; --hero2: 3 105 161; --good: 52 211 153; --warn: 251 191 36; --bad: 248 113 113;
+  color-scheme: dark;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { min-height: 100%; }
+body {
+  background: rgb(var(--bg)); color: rgb(var(--ink));
+  font-family: "IBM Plex Sans Arabic", Tahoma, system-ui, sans-serif; font-size: 15px;
+  -webkit-tap-highlight-color: transparent; overflow-x: hidden;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 35;
+  background: rgb(var(--bg));
+}
+h1, h2, h3 { text-wrap: balance; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.gutter {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@layer components {
+  .input {
+    @apply h-12 w-full min-w-0 rounded-2xl border-2 border-line bg-bg px-3 text-base text-ink outline-none transition;
+  }
+  .input:focus { border-color: rgb(var(--accent)); }
+}
+button, select, input { font: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 3px solid rgb(var(--accent) / 0.5); outline-offset: 2px;
+}
+input[type="date"] { direction: ltr; text-align: right; }
+input[type="number"] { direction: ltr; text-align: right; }
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.fade-in { animation: fade .25s ease-out both; }
+.toast-in { animation: rise .25s ease-out both; }
+@keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fade-in, .toast-in { animation: none; } * { transition: none !important; } }
+
+/* جداول التقرير */
+.rtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rtable th { background: rgb(var(--surface2)); color: rgb(var(--muted)); font-weight: 700; text-align: right; padding: 6px 6px; white-space: nowrap; }
+.rtable td { padding: 6px 6px; border-bottom: 1px solid rgb(var(--line)); vertical-align: middle; }
+.rtable .group-row td { background: rgb(var(--accent) / 0.08); font-weight: 800; color: rgb(var(--ink)); }
+.rtable tfoot td { font-weight: 800; border-top: 2px solid rgb(var(--hero1)); border-bottom: 0; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  :root { --bg: 255 255 255; --surface: 255 255 255; --surface2: 238 243 249; --ink: 15 30 56; --muted: 84 101 128; --line: 214 225 238; color-scheme: light; }
+  .no-print { display: none !important; }
+  body { background: #fff; font-size: 12px; }
+  body::before { display: none; }
+  main { padding: 0 !important; max-width: none !important; }
+  .report { break-inside: auto; }
+  .rtable tr { break-inside: avoid; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
