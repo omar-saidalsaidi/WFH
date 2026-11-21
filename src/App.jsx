@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import html2pdf from 'html2pdf.js';
 import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
   PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils, ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors,
-  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink,
+  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2,
 } from 'lucide-react';
 import {
-  ACCOUNTS, COMPARE_IDS, GROUPS, SALARY, STORAGE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort,
+  COMPARE_IDS, SALARY, STORAGE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, migrate,
   round3, todayISO, uid,
 } from './data.js';
 
@@ -17,6 +18,14 @@ const ITEM_ICONS = {
   tailor: Scissors, laser: Stethoscope, emergency: Siren,
 };
 const ACC_ICONS = { salary: Landmark, applepay: Smartphone, card1: CreditCard, card2: CreditCard };
+
+// ---------- أسماء الفئات والبطاقات (من الحالة) ----------
+const SECTION_COLORS = { fixed: 'var(--c-sky)', daily: 'var(--c-accent)', temp: 'var(--c-warn)', emergency: 'var(--c-bad)' };
+const CARD_COLORS = { salary: 'var(--c-sky)', applepay: 'var(--c-accent)', card1: 'var(--c-warn)', card2: 'rgb(var(--muted))' };
+const MetaContext = createContext({ sections: [], cards: [], cardName: (id) => id, sectionName: (id) => id });
+const useMeta = () => useContext(MetaContext);
+// النوافذ تُعرض مباشرة داخل body حتى لا تحبسها حركات الصفحة تحت الشريطين العلوي والسفلي
+const Portal = ({ children }) => createPortal(children, document.body);
 
 // ---------- الحالة اللونية ----------
 const status = (spent, budget) => {
@@ -39,7 +48,7 @@ const TONE = {
 function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (s && Array.isArray(s.categories) && Array.isArray(s.transactions)) return s;
+    if (s && Array.isArray(s.categories) && Array.isArray(s.transactions)) return migrate(s);
   } catch (e) { /* التخزين غير متاح */ }
   return defaultState();
 }
@@ -60,10 +69,11 @@ function DeficitBadge({ v }) {
   return <span className="num inline-flex whitespace-nowrap rounded-full bg-bad/10 px-2 py-0.5 text-xs font-extrabold text-bad ring-1 ring-bad/25">عجز: {fmtShort(v)} ر.ع</span>;
 }
 function AccTag({ id }) {
+  const { cardName } = useMeta();
   const Icon = ACC_ICONS[id] || CreditCard;
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted">
-      <Icon size={10} aria-hidden="true" />{ACCOUNTS[id]}
+      <Icon size={10} aria-hidden="true" />{cardName(id)}
     </span>
   );
 }
@@ -128,7 +138,8 @@ export default function App() {
       return { ...c, spent, remaining: round3(c.budget - spent), s: status(spent, c.budget) };
     });
     const catMap = Object.fromEntries(cats.map((c) => [c.id, c]));
-    const groups = GROUPS.map((g) => {
+    const groups = state.sections.map((sec) => {
+      const g = { id: sec.id, label: sec.name, short: sec.name, color: SECTION_COLORS[sec.id] || 'rgb(var(--muted))' };
       const list = cats.filter((c) => c.group === g.id);
       const budget = round3(list.reduce((a, c) => a + c.budget, 0));
       const spent = round3(list.reduce((a, c) => a + c.spent, 0));
@@ -138,18 +149,21 @@ export default function App() {
     // البنود المحذوفة: تبقى مصروفاتها محسوبة على البطاقة التي سُجلت عليها
     const orphanTx = state.transactions.filter((t) => !catMap[t.catId]);
     const orphan = round3(orphanTx.reduce((a, t) => a + t.amount, 0));
-    const cardGroups = Object.keys(ACCOUNTS).map((id) => {
+    const cardGroups = state.cards.map(({ id, name }) => {
       const list = cats.filter((c) => c.account === id);
       const budget = round3(list.reduce((a, c) => a + c.budget, 0));
       const spent = round3(list.reduce((a, c) => a + c.spent, 0) + orphanTx.filter((t) => t.account === id).reduce((a, t) => a + t.amount, 0));
       const deficit = round3(Math.max(0, spent - budget));
-      return { id, label: ACCOUNTS[id], short: ACCOUNTS[id], color: CARD_COLORS[id], list, budget, spent, deficit, remaining: round3(budget - spent) };
+      return { id, label: name, short: name, color: CARD_COLORS[id] || 'rgb(var(--muted))', list, budget, spent, deficit, remaining: round3(budget - spent) };
     });
     const accounts = cardGroups.map((g) => ({ id: g.id, label: g.label, limit: g.budget, spent: g.spent }));
     const spent = round3(state.transactions.reduce((a, t) => a + t.amount, 0));
     const allocated = round3(cats.reduce((a, c) => a + c.budget, 0));
     const history = [...state.transactions].sort((a, b) => (a.date === b.date ? b.created - a.created : a.date < b.date ? 1 : -1));
-    return { cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(SALARY - spent), history };
+    const cardMap = Object.fromEntries(state.cards.map((c) => [c.id, c.name]));
+    const sectionMap = Object.fromEntries(state.sections.map((x) => [x.id, x.name]));
+    const meta = { sections: state.sections, cards: state.cards, cardName: (id) => cardMap[id] || id, sectionName: (id) => sectionMap[id] || id };
+    return { meta, cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(SALARY - spent), history };
   }, [state]);
 
   const act = {
@@ -163,11 +177,14 @@ export default function App() {
     addCat: (c) => setState((s) => ({ ...s, categories: [...s.categories, c] })),
     // حذف البند لا يمسح مصروفاته المسجلة، فتبقى ضمن المصروف الفعلي
     delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) })),
+    renameSection: (id, name) => setState((s) => ({ ...s, sections: s.sections.map((x) => (x.id === id ? { ...x, name } : x)) })),
+    renameCards: (names) => setState((s) => ({ ...s, cards: s.cards.map((x) => (names[x.id] ? { ...x, name: names[x.id] } : x)) })),
     reset: () => setState(defaultState()),
   };
   const openSheet = (catId = '') => setSheet({ catId });
 
   return (
+    <MetaContext.Provider value={data.meta}>
     <div className="app-shell min-h-full bg-bg text-ink">
       <header className="sticky z-30 border-b border-line bg-bg/95 backdrop-blur" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <div className="gutter mx-auto flex max-w-md items-center gap-2.5 py-2.5">
@@ -203,6 +220,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </MetaContext.Provider>
   );
 }
 
@@ -231,7 +249,6 @@ function BottomNav({ tab, setTab, onAdd }) {
 }
 
 // ================= الرئيسية والبنود =================
-const CARD_COLORS = { salary: 'var(--c-sky)', applepay: 'var(--c-accent)', card1: 'var(--c-warn)', card2: 'rgb(var(--muted))' };
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
 function HomeTab({ data, act, notify, openSheet }) {
@@ -239,6 +256,8 @@ function HomeTab({ data, act, notify, openSheet }) {
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
   const [editor, setEditor] = useState(null); // { item } أو { defaults }
+  const [rename, setRename] = useState(null); // { kind: 'section' | 'card', id, name }
+  const [manageCards, setManageCards] = useState(false);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
   const over = round3(data.spent - SALARY);
@@ -271,19 +290,25 @@ function HomeTab({ data, act, notify, openSheet }) {
         </dl>
       </section>
 
-      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="طريقة عرض البنود">
-        {[['group', 'حسب الفئة', Layers], ['card', 'حسب البطاقة', CreditCard]].map(([k, l, Icon]) => (
-          <button key={k} role="tab" aria-selected={view === k} onClick={() => { setView(k); setSwiped(null); }}
-            className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-bold transition ${view === k ? 'bg-accent text-white' : 'text-muted'}`}>
-            <Icon size={16} />{l}
-          </button>
-        ))}
+      <div className="flex items-stretch gap-2">
+        <div className="grid flex-1 grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="طريقة عرض البنود">
+          {[['group', 'حسب الفئة', Layers], ['card', 'حسب البطاقة', CreditCard]].map(([k, l, Icon]) => (
+            <button key={k} role="tab" aria-selected={view === k} onClick={() => { setView(k); setSwiped(null); }}
+              className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold transition ${view === k ? 'bg-accent text-white' : 'text-muted'}`}>
+              <Icon size={15} />{l}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setManageCards(true)} className="flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl border border-line bg-surface px-2.5 text-[11px] font-bold text-muted">
+          <Settings2 size={17} className="text-accent" />إدارة البطاقات
+        </button>
       </div>
 
       {sections.map((g) => (
         <GroupBlock key={g.id} g={g} view={view} open={isOpen(g.id)} toggle={() => setOpen((o) => ({ ...o, [g.id]: !isOpen(g.id) }))}
           openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem}
           onEdit={(c) => setEditor({ item: c })}
+          onRename={() => setRename({ kind: view === 'card' ? 'card' : 'section', id: g.id, name: g.label })}
           onAdd={() => setEditor({ defaults: view === 'card' ? { account: g.id, group: g.id === 'salary' ? 'fixed' : 'daily' } : { group: g.id, account: g.id === 'fixed' ? 'salary' : 'applepay' } })} />
       ))}
       {data.orphan > 0 && (
@@ -291,6 +316,17 @@ function HomeTab({ data, act, notify, openSheet }) {
       )}
       <p className="text-center text-xs text-muted">اضغط على البند لتسجيل مصروف عليه، واسحبه لليسار لحذفه.</p>
 
+      {rename && (
+        <RenameSheet title={rename.kind === 'card' ? 'تغيير اسم البطاقة' : 'تغيير اسم الفئة'} value={rename.name} onClose={() => setRename(null)}
+          onSave={(name) => {
+            if (rename.kind === 'card') act.renameCards({ [rename.id]: name }); else act.renameSection(rename.id, name);
+            notify('تم تغيير الاسم'); setRename(null);
+          }} />
+      )}
+      {manageCards && (
+        <ManageCardsSheet cards={data.meta.cards} onClose={() => setManageCards(false)}
+          onSave={(names) => { act.renameCards(names); notify('تم حفظ أسماء البطاقات'); setManageCards(false); }} />
+      )}
       {editor && (
         <ItemSheet item={editor.item} defaults={editor.defaults} onClose={() => setEditor(null)} onDelete={removeItem}
           onSave={(patch) => {
@@ -303,23 +339,26 @@ function HomeTab({ data, act, notify, openSheet }) {
   );
 }
 
-function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd }) {
+function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename }) {
   return (
     <Card className="overflow-hidden">
-      <button onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-2.5 px-4 py-3 text-right">
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-extrabold">{g.label}</span>
-          <span className="block text-[11px] text-muted">
-            <span className="num">{g.list.length}</span> بنود · صُرف <span className="num">{fmtShort(g.spent)}</span> من <span className="num">{fmtShort(g.budget)}</span> ر.ع
+      <div className="flex items-center">
+        <button onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2.5 py-3 ps-4 text-right">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-extrabold">{g.label}</span>
+            <span className="block text-[11px] text-muted">
+              <span className="num">{g.list.length}</span> بنود · صُرف <span className="num">{fmtShort(g.spent)}</span> من <span className="num">{fmtShort(g.budget)}</span> ر.ع
+            </span>
           </span>
-        </span>
-        <span className="flex flex-col items-end gap-0.5">
-          {g.deficit > 0 ? <DeficitBadge v={g.deficit} /> : <span className={`num text-sm font-extrabold ${g.budget ? 'text-good' : 'text-muted'}`}>{fmtShort(g.remaining)}</span>}
-          {view === 'card' && g.deficit === 0 && <span className="text-[10px] text-muted">متبقي</span>}
-        </span>
-        <ChevronDown size={18} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+          <span className="flex flex-col items-end gap-0.5">
+            {g.deficit > 0 ? <DeficitBadge v={g.deficit} /> : <span className={`num text-sm font-extrabold ${g.budget ? 'text-good' : 'text-muted'}`}>{fmtShort(g.remaining)}</span>}
+            {view === 'card' && g.deficit === 0 && <span className="text-[10px] text-muted">متبقي</span>}
+          </span>
+          <ChevronDown size={18} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        <button onClick={onRename} aria-label={`تغيير اسم ${g.label}`} className="mx-1.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted/70 hover:bg-surface2"><Pencil size={14} /></button>
+      </div>
       {open && (
         <>
           {g.list.length > 0 ? (
@@ -399,7 +438,7 @@ function SwipeRow({ id, swiped, setSwiped, onDelete, children }) {
 function ItemRow({ c, view, onOpen, onEdit }) {
   const Icon = ITEM_ICONS[c.id] || Tag;
   const deficit = c.spent > c.budget ? round3(c.spent - c.budget) : 0;
-  const groupShort = GROUPS.find((g) => g.id === c.group)?.short;
+  const groupShort = useMeta().sectionName(c.group);
   return (
     <div role="button" tabIndex={0} aria-label={`تسجيل مصروف على ${c.name}`}
       onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
@@ -430,6 +469,74 @@ function ItemRow({ c, view, onOpen, onEdit }) {
   );
 }
 
+// نافذة تغيير اسم فئة أو بطاقة
+function RenameSheet({ title, value, onSave, onClose }) {
+  const [name, setName] = useState(value);
+  const [err, setErr] = useState('');
+  useModal(onClose);
+  return (
+    <Portal>
+    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (!name.trim()) return setErr('اكتب اسماً.'); onSave(name.trim()); }}
+        role="dialog" aria-modal="true" aria-labelledby="rename-title"
+        className="sheet-in gutter flex w-full max-w-md flex-col gap-3.5 rounded-t-3xl bg-surface pt-3" style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
+        <div className="flex items-center justify-between">
+          <h2 id="rename-title" className="text-xl font-extrabold">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
+        </div>
+        <label htmlFor="rename-input" className="sr-only">الاسم الجديد</label>
+        <input id="rename-input" value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} className="input text-lg font-bold" maxLength={40} autoFocus onFocus={(e) => e.target.select()} />
+        {err && <p className="text-sm font-bold text-bad">{err}</p>}
+        <p className="text-xs text-muted">يتغير الاسم في كل مكان، وتبقى البنود والعمليات كما هي.</p>
+        <button type="submit" className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />حفظ الاسم</button>
+      </form>
+    </div>
+    </Portal>
+  );
+}
+
+// إدارة أسماء البطاقات
+function ManageCardsSheet({ cards, onSave, onClose }) {
+  const [names, setNames] = useState(() => Object.fromEntries(cards.map((c) => [c.id, c.name])));
+  const [err, setErr] = useState('');
+  useModal(onClose);
+  return (
+    <Portal>
+    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="cards-title"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const clean = Object.fromEntries(Object.entries(names).map(([k, v]) => [k, v.trim()]));
+          if (Object.values(clean).some((v) => !v)) return setErr('لا يمكن ترك اسم بطاقة فارغاً.');
+          onSave(clean);
+        }}
+        className="sheet-in gutter flex max-h-[92vh] w-full max-w-md flex-col gap-3.5 overflow-y-auto rounded-t-3xl bg-surface pt-3" style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
+        <div className="flex items-center justify-between">
+          <h2 id="cards-title" className="text-xl font-extrabold">إدارة البطاقات</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
+        </div>
+        <p className="-mt-1 text-xs text-muted">غيّر اسم أي بطاقة، مثل «بنك مسقط» أو «بطاقة السفر». يظهر الاسم الجديد في كل البنود والقوائم والتقارير.</p>
+        {cards.map((c) => {
+          const Icon = ACC_ICONS[c.id] || CreditCard;
+          return (
+            <div key={c.id} className="flex items-center gap-2.5">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Icon size={18} /></span>
+              <label htmlFor={`card-${c.id}`} className="sr-only">اسم البطاقة</label>
+              <input id={`card-${c.id}`} value={names[c.id] ?? ''} onChange={(e) => { setNames((n) => ({ ...n, [c.id]: e.target.value })); setErr(''); }}
+                className="input font-bold" maxLength={30} />
+            </div>
+          );
+        })}
+        {err && <p className="text-sm font-bold text-bad">{err}</p>}
+        <button type="submit" className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />حفظ الأسماء</button>
+      </form>
+    </div>
+    </Portal>
+  );
+}
+
 // نافذة تعديل / إضافة بند
 function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
   const [name, setName] = useState(item?.name || '');
@@ -438,6 +545,7 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
   const [account, setAccount] = useState(item?.account || defaults?.account || 'applepay');
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState('');
+  const { cards, sections } = useMeta();
   useModal(onClose);
   const submit = (e) => {
     e.preventDefault();
@@ -447,6 +555,7 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
     onSave({ name: name.trim(), budget: round3(b), group, account });
   };
   return (
+    <Portal>
     <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
       <form onSubmit={submit} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="item-title"
         className="sheet-in gutter flex max-h-[92vh] w-full max-w-md flex-col gap-3.5 overflow-y-auto rounded-t-3xl bg-surface pt-3"
@@ -473,12 +582,12 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-bold text-muted">البطاقة / الحساب</span>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="البطاقة">
-            {Object.entries(ACCOUNTS).map(([k, l]) => {
-              const Icon = ACC_ICONS[k];
+            {cards.map(({ id: k, name: l }) => {
+              const Icon = ACC_ICONS[k] || CreditCard;
               return (
                 <button key={k} type="button" role="radio" aria-checked={account === k} onClick={() => setAccount(k)}
                   className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-sm font-bold transition ${account === k ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted'}`}>
-                  <Icon size={15} />{l}
+                  <Icon size={15} className="shrink-0" /><span className="truncate">{l}</span>
                 </button>
               );
             })}
@@ -487,7 +596,7 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
         <div className="flex flex-col gap-1.5">
           <label htmlFor="i-group" className="text-sm font-bold text-muted">الفئة</label>
           <select id="i-group" value={group} onChange={(e) => setGroup(e.target.value)} className="input">
-            {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+            {sections.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </div>
         {item && item.spent > 0 && <p className="text-xs text-muted">تغيير البطاقة ينقل مصروفات هذا البند المسجلة إلى البطاقة الجديدة.</p>}
@@ -495,6 +604,7 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
         <button type="submit" className="flex h-13 min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />{item ? 'حفظ التعديلات' : 'إضافة البند'}</button>
       </form>
     </div>
+    </Portal>
   );
 }
 
@@ -662,12 +772,12 @@ function LogTab({ data, act, notify, onReport }) {
           <input id="log-q" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث في البنود أو الملاحظات" aria-label="بحث" className="input bg-surface !pr-11" />
         </div>
         <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4" aria-label="تصفية حسب الفئة">
-          {[['all', 'الكل'], ...GROUPS.map((g) => [g.id, g.short])].map(([k, l]) => (
+          {[['all', 'الكل'], ...data.meta.sections.map((g) => [g.id, g.name])].map(([k, l]) => (
             <button key={k} onClick={() => setGrp(k)} className={`pill ${grp === k ? 'pill-on' : 'pill-off'}`}>{l}</button>
           ))}
         </div>
         <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4" aria-label="تصفية حسب البطاقة">
-          {[['all', 'كل البطاقات'], ...Object.entries(ACCOUNTS)].map(([k, l]) => (
+          {[['all', 'كل البطاقات'], ...data.meta.cards.map((c) => [c.id, c.name])].map(([k, l]) => (
             <button key={k} onClick={() => setAcc(k)} className={`pill text-xs ${acc === k ? 'border-hero bg-hero text-white' : 'pill-off'}`}>{l}</button>
           ))}
         </div>
@@ -741,6 +851,7 @@ function EntrySheet({ cats, initial, onSave, onClose }) {
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
   const cat = cats.find((c) => c.id === catId);
+  const { sections } = useMeta();
   useModal(onClose);
 
   const a = parseFloat(amount);
@@ -777,9 +888,9 @@ function EntrySheet({ cats, initial, onSave, onClose }) {
           <label htmlFor="f-cat" className="text-sm font-bold text-muted">البند</label>
           <select id="f-cat" value={catId} onChange={(e) => { setCatId(e.target.value); setErr(''); }} className="input font-bold">
             <option value="" disabled>اختر البند…</option>
-            {GROUPS.map((g) => (
-              <optgroup key={g.id} label={g.label}>
-                {cats.filter((c) => c.group === g.id).map((c) => <option key={c.id} value={c.id}>{c.id === 'emergency' ? 'بنود غير متوقعة / طارئة' : c.name}</option>)}
+            {sections.map((g) => (
+              <optgroup key={g.id} label={g.name}>
+                {cats.filter((c) => c.group === g.id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </optgroup>
             ))}
           </select>
@@ -947,7 +1058,7 @@ function ReportModal({ data, onClose, notify }) {
                   <tr className="group-row"><td colSpan={2}>{g.label}</td><td className="num">{fmtShort(g.budget)}</td><td className="num">{fmtShort(g.spent)}</td><td className={`num ${g.deficit > 0 ? 'text-bad' : ''}`}>{g.deficit > 0 ? `عجز ${fmtShort(g.deficit)}` : fmtShort(g.remaining)}</td></tr>
                   {g.list.map((c) => (
                     <tr key={c.id}>
-                      <td>{c.name}</td><td className="whitespace-nowrap text-muted">{ACCOUNTS[c.account]}</td>
+                      <td>{c.name}</td><td className="whitespace-nowrap text-muted">{data.meta.cardName(c.account)}</td>
                       <td className="num">{fmtShort(c.budget)}</td><td className="num">{fmtShort(c.spent)}</td>
                       <td className={`num whitespace-nowrap font-bold ${c.remaining < 0 ? 'text-bad' : 'text-good'}`}>{c.remaining < 0 ? `عجز ${fmtShort(-c.remaining)}` : fmtShort(c.remaining)}</td>
                     </tr>

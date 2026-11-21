@@ -68,7 +68,7 @@ input[type="date"], input[type="number"] { direction: ltr; text-align: right; }
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }
 
-.fade-in { animation: fade .28s ease-out both; }
+.fade-in { animation: fade .28s ease-out; }
 .toast-in { animation: rise .25s ease-out both; }
 .sheet-in { animation: sheet .28s cubic-bezier(.2,.9,.3,1) both; }
 .backdrop-in { animation: fadeonly .2s ease-out both; }

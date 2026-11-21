@@ -3,19 +3,20 @@
 export const SALARY = 760;
 export const STORAGE_KEY = 'salary-tracker-omr-v3';
 
-export const GROUPS = [
-  { id: 'fixed', label: 'الالتزامات الثابتة', short: 'ثابتة', color: 'var(--c-sky)' },
-  { id: 'daily', label: 'المصاريف التشغيلية واليومية', short: 'تشغيلية', color: 'var(--c-accent)' },
-  { id: 'temp', label: 'التزامات مؤقتة', short: 'مؤقتة', color: 'var(--c-warn)' },
-  { id: 'emergency', label: 'بنود غير متوقعة / طارئة', short: 'طارئة', color: 'var(--c-bad)' },
+// الفئات والبطاقات قابلة لإعادة التسمية، والمعرّفات ثابتة فلا تتأثر البنود والعمليات بتغيير الأسماء
+export const DEFAULT_SECTIONS = [
+  { id: 'fixed', name: 'الالتزامات الثابتة' },
+  { id: 'daily', name: 'المصاريف التشغيلية واليومية' },
+  { id: 'temp', name: 'التزامات مؤقتة' },
+  { id: 'emergency', name: 'بنود غير متوقعة / طارئة' },
 ];
 
-export const ACCOUNTS = {
-  salary: 'حساب الراتب',
-  applepay: 'Apple Pay',
-  card1: 'البطاقة 1',
-  card2: 'البطاقة 2',
-};
+export const DEFAULT_CARDS = [
+  { id: 'salary', name: 'حساب الراتب' },
+  { id: 'applepay', name: 'Apple Pay' },
+  { id: 'card1', name: 'البطاقة 1' },
+  { id: 'card2', name: 'البطاقة 2' },
+];
 
 export const DEFAULT_CATEGORIES = [
   { id: 'jamiya', name: 'الجمعية', group: 'fixed', budget: 150, account: 'salary' },
@@ -40,9 +41,21 @@ export const DEFAULT_CATEGORIES = [
 export const COMPARE_IDS = ['fuel', 'food', 'ration', 'fun', 'emergency'];
 
 export const defaultState = () => ({
+  sections: DEFAULT_SECTIONS.map((x) => ({ ...x })),
+  cards: DEFAULT_CARDS.map((x) => ({ ...x })),
   categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
   transactions: [],
 });
+
+// ترحيل البيانات القديمة: إضافة قوائم الفئات والبطاقات إن لم تكن محفوظة، مع الإبقاء على البنود والعمليات كما هي
+export function migrate(s) {
+  const fill = (saved, defaults) => {
+    const list = Array.isArray(saved) ? saved.filter((x) => x && x.id && typeof x.name === 'string') : [];
+    for (const d of defaults) if (!list.some((x) => x.id === d.id)) list.push({ ...d });
+    return defaults.map((d) => list.find((x) => x.id === d.id)).concat(list.filter((x) => !defaults.some((d) => d.id === x.id)));
+  };
+  return { ...s, sections: fill(s.sections, DEFAULT_SECTIONS), cards: fill(s.cards, DEFAULT_CARDS) };
+}
 
 export const round3 = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const numFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
