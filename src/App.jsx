@@ -5,10 +5,10 @@ import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
   PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils, ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors,
-  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2,
+  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2, CalendarDays, CalendarPlus,
 } from 'lucide-react';
 import {
-  COMPARE_IDS, SALARY, STORAGE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, migrate,
+  COMPARE_IDS, STORAGE_KEY, STORE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, loadStore, monthFromTemplate, nextPeriod,
   round3, todayISO, uid,
 } from './data.js';
 
@@ -45,13 +45,6 @@ const TONE = {
 };
 
 // ---------- التخزين ----------
-function loadState() {
-  try {
-    const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (s && Array.isArray(s.categories) && Array.isArray(s.transactions)) return migrate(s);
-  } catch (e) { /* التخزين غير متاح */ }
-  return defaultState();
-}
 function loadOpen() {
   try { const o = JSON.parse(localStorage.getItem(`${STORAGE_KEY}-open`)); if (o && typeof o === 'object') return o; } catch (e) { /* تجاهل */ }
   return { fixed: false, daily: true, temp: false, emergency: false };
@@ -93,13 +86,14 @@ function Card({ children, className = '' }) {
 // ---------- نص التقرير للمشاركة ----------
 function reportText(data) {
   const L = [];
-  L.push(`تقرير مصاريف الراتب — ${dateLabel(todayISO())}`);
+  L.push(`تقرير مصاريف الراتب — ${data.label}`);
+  L.push(`تاريخ التقرير: ${dateLabel(todayISO())}`);
   L.push('');
-  L.push(`الراتب: ${fmt(SALARY)} ر.ع`);
+  L.push(`الراتب: ${fmt(data.salary)} ر.ع`);
   L.push(`الموزع: ${fmt(data.allocated)} ر.ع`);
   L.push(`المصروف الفعلي: ${fmt(data.spent)} ر.ع`);
   L.push(`المتبقي الفعلي: ${fmt(data.remaining)} ر.ع`);
-  if (data.spent > SALARY) L.push(`⚠️ عجز: تجاوز المصروف الراتب بـ ${fmtShort(data.spent - SALARY)} ر.ع`);
+  if (data.spent > data.salary) L.push(`⚠️ عجز: تجاوز المصروف الراتب بـ ${fmtShort(data.spent - data.salary)} ر.ع`);
   for (const g of data.groups) {
     L.push('');
     L.push(`▪️ ${g.label} (${fmtShort(g.budget)} ر.ع)`);
@@ -120,13 +114,18 @@ function reportText(data) {
 
 // ---------- التطبيق ----------
 export default function App() {
-  const [state, setState] = useState(loadState);
+  const [store, setStore] = useState(loadStore);
+  const state = store.months.find((m) => m.id === store.activeId) || store.months[0];
+  // كل التعديلات تُطبَّق على الشهر النشط فقط
+  const setState = (fn) => setStore((st) => ({ ...st, months: st.months.map((m) => (m.id === st.activeId ? fn(m) : m)) }));
+  const [monthSheet, setMonthSheet] = useState(false);
+  const [salarySheet, setSalarySheet] = useState(false);
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem('st4-tab') || 'home'; } catch (e) { return 'home'; } });
   const [report, setReport] = useState(false);
   const [sheet, setSheet] = useState(null);
   const [toast, setToast] = useState('');
 
-  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* تجاهل */ } }, [state]);
+  useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* تجاهل */ } }, [store]);
   useEffect(() => { try { sessionStorage.setItem('st4-tab', tab); } catch (e) { /* تجاهل */ } window.scrollTo(0, 0); }, [tab]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2400); return () => clearTimeout(t); }, [toast]);
 
@@ -163,7 +162,7 @@ export default function App() {
     const cardMap = Object.fromEntries(state.cards.map((c) => [c.id, c.name]));
     const sectionMap = Object.fromEntries(state.sections.map((x) => [x.id, x.name]));
     const meta = { sections: state.sections, cards: state.cards, cardName: (id) => cardMap[id] || id, sectionName: (id) => sectionMap[id] || id };
-    return { meta, cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(SALARY - spent), history };
+    return { meta, label: state.label, period: state.period, salary: state.salary, cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(state.salary - spent), history };
   }, [state]);
 
   const act = {
@@ -179,7 +178,21 @@ export default function App() {
     delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) })),
     renameSection: (id, name) => setState((s) => ({ ...s, sections: s.sections.map((x) => (x.id === id ? { ...x, name } : x)) })),
     renameCards: (names) => setState((s) => ({ ...s, cards: s.cards.map((x) => (names[x.id] ? { ...x, name: names[x.id] } : x)) })),
-    reset: () => setState(defaultState()),
+    reset: () => setState((m) => ({ ...m, ...defaultState() })),
+    setSalary: (salary) => setState((m) => ({ ...m, salary })),
+    renameMonth: (label) => setState((m) => ({ ...m, label })),
+    switchMonth: (id) => setStore((st) => ({ ...st, activeId: id })),
+    newMonth: () => setStore((st) => {
+      const tpl = st.months.find((m) => m.id === st.activeId) || st.months[st.months.length - 1];
+      const latest = st.months.reduce((a, m) => (m.period > a ? m.period : a), tpl.period || '');
+      const m = monthFromTemplate(tpl, nextPeriod(latest));
+      return { months: [...st.months, m], activeId: m.id };
+    }),
+    deleteMonth: (id) => setStore((st) => {
+      const months = st.months.filter((m) => m.id !== id);
+      if (!months.length) return st;
+      return { months, activeId: st.activeId === id ? months[months.length - 1].id : st.activeId };
+    }),
   };
   const openSheet = (catId = '') => setSheet({ catId });
 
@@ -189,18 +202,18 @@ export default function App() {
       <header className="sticky z-30 border-b border-line bg-bg/95 backdrop-blur" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <div className="gutter mx-auto flex max-w-md items-center gap-2.5 py-2.5">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-hero text-white"><Wallet size={18} /></div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-[14px] font-extrabold">تتبع مصاريف الراتب</p>
-            <p className="text-[11px] text-muted">المتبقي <span className="num font-bold text-ink">{fmt(data.remaining)}</span> ر.ع</p>
-          </div>
-          <button onClick={() => setReport(true)} className="flex h-10 shrink-0 items-center gap-1 rounded-xl border border-accent/30 bg-accent/10 px-2.5 text-[12px] font-bold text-accent">
-            <FileText size={15} />تصدير / طباعة التقرير
+          <button onClick={() => setMonthSheet(true)} className="min-w-0 flex-1 text-right leading-tight" aria-label={`${data.label}، تغيير الشهر`}>
+            <span className="block text-[10px] font-medium text-muted">تتبع مصاريف الراتب</span>
+            <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="truncate">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
+          </button>
+          <button onClick={() => setReport(true)} aria-label="تصدير / طباعة التقرير" className="flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 px-2 text-[10px] font-bold leading-none text-accent">
+            <FileText size={16} />تصدير / طباعة
           </button>
         </div>
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} act={act} notify={setToast} openSheet={openSheet} />}
+        {tab === 'home' && <HomeTab data={data} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} />}
         {tab === 'stats' && <StatsTab data={data} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
       </main>
@@ -213,6 +226,13 @@ export default function App() {
       )}
 
       {report && <ReportModal data={data} onClose={() => setReport(false)} notify={setToast} />}
+      {salarySheet && (
+        <SalarySheet value={state.salary} onClose={() => setSalarySheet(false)}
+          onSave={(v) => { act.setSalary(v); setSalarySheet(false); setToast(`الراتب الآن ${fmtShort(v)} ر.ع`); }} />
+      )}
+      {monthSheet && (
+        <MonthSheet store={store} active={state} onClose={() => setMonthSheet(false)} act={act} notify={setToast} />
+      )}
 
       {toast && (
         <div className="no-print fixed inset-x-0 z-[60] flex justify-center px-4 toast-in" style={{ top: 'calc(64px + env(safe-area-inset-top, 0px))' }} role="status">
@@ -251,7 +271,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, act, notify, openSheet }) {
+function HomeTab({ data, act, notify, openSheet, onEditSalary }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
@@ -260,8 +280,8 @@ function HomeTab({ data, act, notify, openSheet }) {
   const [manageCards, setManageCards] = useState(false);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
-  const over = round3(data.spent - SALARY);
-  const pct = Math.min(100, (data.spent / SALARY) * 100);
+  const over = round3(data.spent - data.salary);
+  const pct = data.salary > 0 ? Math.min(100, (data.spent / data.salary) * 100) : 100;
   const sections = view === 'card' ? data.cardGroups : data.groups;
   const isOpen = (id) => (open[id] ?? DEFAULT_OPEN[id]) === true;
 
@@ -275,14 +295,22 @@ function HomeTab({ data, act, notify, openSheet }) {
             <TriangleAlert size={16} />عجز: تجاوزت الراتب بـ <span className="num">{fmtShort(over)}</span> ر.ع
           </div>
         )}
-        <p className="text-[13px] text-white/70">المتبقي الفعلي من الراتب</p>
+        <p className="text-[13px] text-white/70">المتبقي الفعلي من الراتب · {data.label.replace(/^راتب /, '')}</p>
         <p className="mt-1 text-[40px] font-extrabold leading-none"><Money v={data.remaining} /></p>
         <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15">
           <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 ? 'bg-bad' : 'bg-white/85'}`} style={{ width: `${pct}%` }} />
         </div>
         <dl className="mt-4 grid grid-cols-3 text-center">
-          {[['الراتب', SALARY], ['الموزع', data.allocated], ['المصروف الفعلي', data.spent]].map(([k, v], i) => (
-            <div key={k} className={i ? 'border-r border-white/15' : ''}>
+          <div>
+            <dt className="text-[11px] text-white/65">الراتب</dt>
+            <dd>
+              <button onClick={onEditSalary} aria-label="تعديل مبلغ الراتب" className="mx-auto mt-0.5 flex items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-lg font-extrabold">
+                <span className="num">{fmtShort(data.salary)}</span><Pencil size={12} className="opacity-70" />
+              </button>
+            </dd>
+          </div>
+          {[['الموزع', data.allocated], ['المصروف الفعلي', data.spent]].map(([k, v]) => (
+            <div key={k} className="border-r border-white/15">
               <dt className="text-[11px] text-white/65">{k}</dt>
               <dd className="num mt-0.5 text-lg font-extrabold">{fmtShort(v)}</dd>
             </div>
@@ -466,6 +494,119 @@ function ItemRow({ c, view, onOpen, onEdit }) {
       <button onClick={(e) => { e.stopPropagation(); onEdit(); }} aria-label={`تعديل ${c.name}`}
         className="-me-2 grid h-9 w-8 shrink-0 place-items-center rounded-lg text-muted/70 hover:bg-surface2"><Pencil size={14} /></button>
     </div>
+  );
+}
+
+// نافذة تعديل الراتب
+function SalarySheet({ value, onSave, onClose }) {
+  const [v, setV] = useState(String(value));
+  const [err, setErr] = useState('');
+  useModal(onClose);
+  return (
+    <Portal>
+    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="salary-title"
+        onSubmit={(e) => { e.preventDefault(); const n = parseFloat(v); if (isNaN(n) || n <= 0) return setErr('أدخل مبلغاً أكبر من صفر.'); onSave(round3(n)); }}
+        className="sheet-in gutter flex w-full max-w-md flex-col gap-3.5 rounded-t-3xl bg-surface pt-3" style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
+        <div className="flex items-center justify-between">
+          <h2 id="salary-title" className="text-xl font-extrabold">مبلغ الراتب لهذا الشهر</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
+        </div>
+        <div className="relative">
+          <label htmlFor="salary-input" className="sr-only">الراتب</label>
+          <input id="salary-input" type="number" inputMode="decimal" step="0.001" min="0" value={v} onChange={(e) => { setV(e.target.value); setErr(''); }}
+            className="input num h-16 pe-4 ps-14 text-3xl font-extrabold" autoFocus onFocus={(e) => e.target.select()} />
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-base font-bold text-muted">ر.ع</span>
+        </div>
+        {err && <p className="text-sm font-bold text-bad">{err}</p>}
+        <p className="text-xs text-muted">أضف العلاوات أو المكافآت أو الزيادة هنا. يتغير المتبقي والعجز فوراً، والأشهر الجديدة تبدأ بهذا المبلغ.</p>
+        <button type="submit" className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />حفظ الراتب</button>
+      </form>
+    </div>
+    </Portal>
+  );
+}
+
+// نافذة الأشهر: تسمية الشهر الحالي، التبديل بين الأشهر، بدء شهر جديد
+function MonthSheet({ store, active, act, notify, onClose }) {
+  const [label, setLabel] = useState(active.label);
+  const [askNew, setAskNew] = useState(false);
+  const [askDel, setAskDel] = useState(false);
+  useEffect(() => { setLabel(active.label); setAskDel(false); }, [active.id, active.label]);
+  useModal(onClose);
+  const months = [...store.months].sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : 0));
+  const spentOf = (m) => round3(m.transactions.reduce((a, t) => a + t.amount, 0));
+  return (
+    <Portal>
+    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="month-title"
+        className="sheet-in gutter flex max-h-[92vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl bg-surface pt-3" style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
+        <div className="flex items-center justify-between">
+          <h2 id="month-title" className="text-xl font-extrabold">الأشهر</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
+        </div>
+
+        <form className="flex flex-col gap-1.5" onSubmit={(e) => { e.preventDefault(); if (!label.trim()) return; act.renameMonth(label.trim()); notify('تم تغيير اسم الشهر'); }}>
+          <label htmlFor="month-label" className="text-sm font-bold text-muted">اسم الشهر الحالي</label>
+          <div className="flex gap-2">
+            <input id="month-label" value={label} onChange={(e) => setLabel(e.target.value)} className="input font-bold" maxLength={40} />
+            <button type="submit" disabled={!label.trim() || label.trim() === active.label} className="h-12 shrink-0 rounded-2xl bg-accent px-4 font-bold text-white disabled:opacity-40">حفظ</button>
+          </div>
+        </form>
+
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-bold text-muted">الأشهر المحفوظة</p>
+          <ul className="flex flex-col gap-2" role="radiogroup" aria-label="اختيار الشهر">
+            {months.map((m) => {
+              const on = m.id === active.id;
+              const sp = spentOf(m);
+              return (
+                <li key={m.id}>
+                  <button role="radio" aria-checked={on} onClick={() => { act.switchMonth(m.id); notify(`تم فتح ${m.label}`); onClose(); }}
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-right transition ${on ? 'border-accent bg-accent/5' : 'border-line'}`}>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${on ? 'bg-accent text-white' : 'bg-surface2 text-muted'}`}><CalendarDays size={17} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-bold">{m.label}</span>
+                      <span className="block text-[11px] text-muted">الراتب <span className="num">{fmtShort(m.salary)}</span> · صُرف <span className="num">{fmtShort(sp)}</span> · <span className="num">{m.transactions.length}</span> عملية</span>
+                    </span>
+                    <span className={`num text-sm font-extrabold ${m.salary - sp < 0 ? 'text-bad' : 'text-good'}`}>{fmtShort(round3(m.salary - sp))}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {askNew ? (
+          <div className="flex flex-col gap-2 rounded-2xl border border-accent/30 bg-accent/5 p-3.5">
+            <p className="text-sm font-bold">بدء شهر جديد؟</p>
+            <p className="text-xs leading-relaxed text-muted">يُنسخ الراتب والفئات والبطاقات والبنود ومخصصاتها من «{active.label}»، ويبدأ المصروف والسجل من الصفر. يبقى الشهر الحالي محفوظاً ويمكنك فتحه أو طباعته في أي وقت.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { act.newMonth(); notify('بدأ شهر جديد'); onClose(); }} className="h-11 rounded-xl bg-accent font-bold text-white">ابدأ الشهر</button>
+              <button onClick={() => setAskNew(false)} className="h-11 rounded-xl bg-surface2 font-bold text-muted">إلغاء</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setAskNew(true)} className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accent/40 font-extrabold text-accent">
+            <CalendarPlus size={20} />+ بدء شهر جديد
+          </button>
+        )}
+
+        {store.months.length > 1 && (
+          askDel ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { act.deleteMonth(active.id); notify('تم حذف الشهر'); onClose(); }} className="h-11 rounded-xl bg-bad text-sm font-bold text-white">تأكيد حذف «{active.label}»</button>
+              <button onClick={() => setAskDel(false)} className="h-11 rounded-xl bg-surface2 font-bold text-muted">إلغاء</button>
+            </div>
+          ) : (
+            <button onClick={() => setAskDel(true)} className="flex h-10 items-center justify-center gap-1.5 text-sm font-bold text-bad"><Trash2 size={15} />حذف الشهر الحالي</button>
+          )
+        )}
+      </div>
+    </div>
+    </Portal>
   );
 }
 
@@ -811,7 +952,7 @@ function LogTab({ data, act, notify, onReport }) {
 
       {resetAsk ? (
         <div className="flex flex-col gap-2 rounded-2xl border border-bad/30 bg-bad/5 p-4">
-          <p className="text-sm font-bold">سيُحذف كل العمليات وتعود البنود ومخصصاتها للوضع الافتراضي. هل أنت متأكد؟</p>
+          <p className="text-sm font-bold">سيُحذف كل عمليات «{data.label}» وتعود بنوده ومخصصاته للوضع الافتراضي. الأشهر الأخرى لا تتأثر. هل أنت متأكد؟</p>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => { act.reset(); setResetAsk(false); notify('تم مسح كل البيانات'); }} className="h-12 rounded-xl bg-bad font-bold text-white">نعم، امسح الكل</button>
             <button onClick={() => setResetAsk(false)} className="h-12 rounded-xl bg-surface2 font-bold text-muted">إلغاء</button>
@@ -939,7 +1080,7 @@ function ReportModal({ data, onClose, notify }) {
 
   const articleRef = useRef(null);
   const [pdf, setPdf] = useState({ state: 'idle' }); // idle | busy | ready | error
-  const fileName = `salary-report-${todayISO()}.pdf`;
+  const fileName = `salary-report-${data.period || todayISO().slice(0, 7)}.pdf`;
 
   const doPrint = () => {
     try { window.print(); } catch (e) { /* بعض العارضات تمنع الطباعة */ }
@@ -1035,19 +1176,25 @@ function ReportModal({ data, onClose, notify }) {
 
         <article ref={articleRef} className="gutter flex-1 overflow-y-auto py-4" style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))' }}>
           <header className="flex items-end justify-between border-b-2 border-hero pb-2">
-            <h1 id="report-title" className="text-xl font-extrabold">تقرير مصاريف الراتب</h1>
-            <span className="text-xs text-muted">{dateLabel(todayISO())}</span>
+            <div>
+              <p className="text-xs font-bold text-muted">تقرير مصاريف الراتب</p>
+              <h1 id="report-title" className="text-xl font-extrabold">{data.label}</h1>
+            </div>
+            <div className="text-left">
+              <p className="text-xs font-bold">الراتب <span className="num">{fmt(data.salary)}</span> ر.ع</p>
+              <span className="text-[11px] text-muted">{dateLabel(todayISO())}</span>
+            </div>
           </header>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            {[['الراتب', SALARY], ['الموزع', data.allocated], ['المصروف الفعلي', data.spent], ['المتبقي الفعلي', data.remaining]].map(([k, v], i) => (
+            {[['الراتب', data.salary], ['الموزع', data.allocated], ['المصروف الفعلي', data.spent], ['المتبقي الفعلي', data.remaining]].map(([k, v], i) => (
               <div key={k} className={`rounded-xl border border-line px-3 py-2 ${i === 3 ? 'bg-good/5' : ''}`}>
                 <p className="text-[11px] text-muted">{k}</p>
                 <p className={`num text-lg font-extrabold ${i === 3 && v < 0 ? 'text-bad' : ''}`}>{fmt(v)} <span className="text-[10px] text-muted">ر.ع</span></p>
               </div>
             ))}
           </div>
-          {data.spent > SALARY && <p className="mt-2 rounded-xl bg-bad/10 px-3 py-2 text-sm font-bold text-bad">عجز: تجاوز المصروف الراتب بـ <span className="num">{fmtShort(data.spent - SALARY)}</span> ر.ع</p>}
+          {data.spent > data.salary && <p className="mt-2 rounded-xl bg-bad/10 px-3 py-2 text-sm font-bold text-bad">عجز: تجاوز المصروف الراتب بـ <span className="num">{fmtShort(data.spent - data.salary)}</span> ر.ع</p>}
 
           <h2 className="mt-5 mb-2 text-sm font-extrabold">البنود والعجز</h2>
           <div className="overflow-x-auto">

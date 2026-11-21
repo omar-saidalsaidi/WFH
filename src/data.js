@@ -74,3 +74,47 @@ const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Da
 export const dateLabel = (s) => shortFmt.format(parse(s));
 export const dayHeading = (s) => (s === todayISO() ? 'اليوم' : s === yesterdayISO() ? 'أمس' : longFmt.format(parse(s)));
 export const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+// ---------- الأشهر ----------
+// كل شهر يحمل نسخته الخاصة من الراتب والفئات والبطاقات والبنود والعمليات
+export const STORE_KEY = 'salary-tracker-omr-v4';
+const monthNameFmt = new Intl.DateTimeFormat('ar-u-nu-latn', { month: 'long', year: 'numeric' });
+export const periodNow = () => todayISO().slice(0, 7);
+export const nextPeriod = (p) => { const [y, m] = p.split('-').map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+export const monthLabelFor = (p) => { const [y, m] = p.split('-').map(Number); return `راتب شهر ${monthNameFmt.format(new Date(y, m - 1, 1))}`; };
+
+const newMonth = (period, base) => ({
+  id: `m${uid()}`,
+  period,
+  label: monthLabelFor(period),
+  salary: SALARY,
+  ...(base || defaultState()),
+});
+
+// شهر جديد من قالب الشهر الحالي: نفس الراتب والفئات والبطاقات والبنود، بلا عمليات
+export const monthFromTemplate = (tpl, period) => ({
+  ...newMonth(period),
+  salary: tpl.salary,
+  sections: tpl.sections.map((x) => ({ ...x })),
+  cards: tpl.cards.map((x) => ({ ...x })),
+  categories: tpl.categories.map((c) => ({ ...c })),
+  transactions: [],
+});
+
+// تحميل البيانات: الصيغة الجديدة، أو ترحيل بيانات الإصدار السابق إلى الشهر الحالي
+export function loadStore() {
+  try {
+    const st = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (st && Array.isArray(st.months) && st.months.length) {
+      const months = st.months.map((m) => ({ ...migrate(m), salary: typeof m.salary === 'number' ? m.salary : SALARY }));
+      return { months, activeId: months.some((m) => m.id === st.activeId) ? st.activeId : months[months.length - 1].id };
+    }
+  } catch (e) { /* ننتقل للترحيل */ }
+  let base = null;
+  try {
+    const old = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (old && Array.isArray(old.categories) && Array.isArray(old.transactions)) base = migrate(old);
+  } catch (e) { /* لا توجد بيانات سابقة */ }
+  const m = newMonth(periodNow(), base ? { sections: base.sections, cards: base.cards, categories: base.categories, transactions: base.transactions } : null);
+  return { months: [m], activeId: m.id };
+}
