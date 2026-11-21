@@ -4,10 +4,10 @@ export const SALARY = 760;
 export const STORAGE_KEY = 'salary-tracker-omr-v3';
 
 export const GROUPS = [
-  { id: 'fixed', label: 'الالتزامات الثابتة', short: 'ثابتة', color: 'var(--c-indigo)' },
-  { id: 'daily', label: 'المصاريف التشغيلية واليومية', short: 'تشغيلية', color: 'var(--c-mint)' },
-  { id: 'temp', label: 'التزامات مؤقتة', short: 'مؤقتة', color: 'var(--c-amber)' },
-  { id: 'emergency', label: 'بنود غير متوقعة / طارئة', short: 'طارئة', color: 'var(--c-coral)' },
+  { id: 'fixed', label: 'الالتزامات الثابتة', short: 'ثابتة', color: 'var(--c-sky)' },
+  { id: 'daily', label: 'المصاريف التشغيلية واليومية', short: 'تشغيلية', color: 'var(--c-accent)' },
+  { id: 'temp', label: 'التزامات مؤقتة', short: 'مؤقتة', color: 'var(--c-warn)' },
+  { id: 'emergency', label: 'بنود غير متوقعة / طارئة', short: 'طارئة', color: 'var(--c-bad)' },
 ];
 
 export const ACCOUNTS = {
