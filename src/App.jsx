@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import html2pdf from 'html2pdf.js';
 import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
   PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils, ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors,
-  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy,
+  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink,
 } from 'lucide-react';
 import {
   ACCOUNTS, COMPARE_IDS, GROUPS, SALARY, STORAGE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort,
@@ -97,6 +98,7 @@ function reportText(data) {
       L.push(`- ${c.name}: صُرف ${fmtShort(c.spent)} من ${fmtShort(c.budget)} · ${tail}`);
     }
   }
+  if (data.orphan > 0) L.push(`\n(مصروفات لبنود محذوفة: ${fmtShort(data.orphan)} ر.ع)`);
   L.push('');
   L.push(`العمليات (${data.history.length}):`);
   if (!data.history.length) L.push('لا توجد عمليات');
@@ -133,23 +135,34 @@ export default function App() {
       const deficit = round3(list.reduce((a, c) => a + Math.max(0, c.spent - c.budget), 0));
       return { ...g, list, budget, spent, deficit, remaining: round3(budget - spent) };
     });
-    const accounts = Object.keys(ACCOUNTS).map((id) => {
-      const limit = round3(cats.filter((c) => c.account === id).reduce((a, c) => a + c.budget, 0));
-      const spent = round3(state.transactions.filter((t) => t.account === id).reduce((a, t) => a + t.amount, 0));
-      return { id, label: ACCOUNTS[id], limit, spent };
+    // البنود المحذوفة: تبقى مصروفاتها محسوبة على البطاقة التي سُجلت عليها
+    const orphanTx = state.transactions.filter((t) => !catMap[t.catId]);
+    const orphan = round3(orphanTx.reduce((a, t) => a + t.amount, 0));
+    const cardGroups = Object.keys(ACCOUNTS).map((id) => {
+      const list = cats.filter((c) => c.account === id);
+      const budget = round3(list.reduce((a, c) => a + c.budget, 0));
+      const spent = round3(list.reduce((a, c) => a + c.spent, 0) + orphanTx.filter((t) => t.account === id).reduce((a, t) => a + t.amount, 0));
+      const deficit = round3(Math.max(0, spent - budget));
+      return { id, label: ACCOUNTS[id], short: ACCOUNTS[id], color: CARD_COLORS[id], list, budget, spent, deficit, remaining: round3(budget - spent) };
     });
+    const accounts = cardGroups.map((g) => ({ id: g.id, label: g.label, limit: g.budget, spent: g.spent }));
     const spent = round3(state.transactions.reduce((a, t) => a + t.amount, 0));
     const allocated = round3(cats.reduce((a, c) => a + c.budget, 0));
     const history = [...state.transactions].sort((a, b) => (a.date === b.date ? b.created - a.created : a.date < b.date ? 1 : -1));
-    return { cats, catMap, groups, accounts, spent, allocated, remaining: round3(SALARY - spent), history };
+    return { cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(SALARY - spent), history };
   }, [state]);
 
   const act = {
     addTx: (tx) => setState((s) => ({ ...s, transactions: [...s.transactions, { ...tx, id: uid(), created: Date.now() }] })),
     delTx: (id) => setState((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
-    setBudget: (id, budget) => setState((s) => ({ ...s, categories: s.categories.map((c) => (c.id === id ? { ...c, budget } : c)) })),
+    updateCat: (id, patch) => setState((s) => ({
+      ...s,
+      categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      transactions: patch.account ? s.transactions.map((t) => (t.catId === id ? { ...t, account: patch.account } : t)) : s.transactions,
+    })),
     addCat: (c) => setState((s) => ({ ...s, categories: [...s.categories, c] })),
-    delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id), transactions: s.transactions.filter((t) => t.catId !== id) })),
+    // حذف البند لا يمسح مصروفاته المسجلة، فتبقى ضمن المصروف الفعلي
+    delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) })),
     reset: () => setState(defaultState()),
   };
   const openSheet = (catId = '') => setSheet({ catId });
@@ -218,11 +231,23 @@ function BottomNav({ tab, setTab, onAdd }) {
 }
 
 // ================= الرئيسية والبنود =================
+const CARD_COLORS = { salary: 'var(--c-sky)', applepay: 'var(--c-accent)', card1: 'var(--c-warn)', card2: 'rgb(var(--muted))' };
+const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
+
 function HomeTab({ data, act, notify, openSheet }) {
   const [open, setOpen] = useState(loadOpen);
+  const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
+  const [swiped, setSwiped] = useState(null);
+  const [editor, setEditor] = useState(null); // { item } أو { defaults }
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
+  useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
   const over = round3(data.spent - SALARY);
   const pct = Math.min(100, (data.spent / SALARY) * 100);
+  const sections = view === 'card' ? data.cardGroups : data.groups;
+  const isOpen = (id) => (open[id] ?? DEFAULT_OPEN[id]) === true;
+
+  const removeItem = (c) => { act.delCat(c.id); setSwiped(null); setEditor(null); notify(`تم حذف بند ${c.name}`); };
+
   return (
     <div className="flex flex-col gap-4 fade-in">
       <section className="rounded-3xl bg-gradient-to-bl from-hero to-hero2 p-5 text-white">
@@ -246,17 +271,39 @@ function HomeTab({ data, act, notify, openSheet }) {
         </dl>
       </section>
 
-      {data.groups.map((g) => (
-        <GroupBlock key={g.id} g={g} open={!!open[g.id]} toggle={() => setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))} act={act} notify={notify} openSheet={openSheet} />
+      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="طريقة عرض البنود">
+        {[['group', 'حسب الفئة', Layers], ['card', 'حسب البطاقة', CreditCard]].map(([k, l, Icon]) => (
+          <button key={k} role="tab" aria-selected={view === k} onClick={() => { setView(k); setSwiped(null); }}
+            className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-bold transition ${view === k ? 'bg-accent text-white' : 'text-muted'}`}>
+            <Icon size={16} />{l}
+          </button>
+        ))}
+      </div>
+
+      {sections.map((g) => (
+        <GroupBlock key={g.id} g={g} view={view} open={isOpen(g.id)} toggle={() => setOpen((o) => ({ ...o, [g.id]: !isOpen(g.id) }))}
+          openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem}
+          onEdit={(c) => setEditor({ item: c })}
+          onAdd={() => setEditor({ defaults: view === 'card' ? { account: g.id, group: g.id === 'salary' ? 'fixed' : 'daily' } : { group: g.id, account: g.id === 'fixed' ? 'salary' : 'applepay' } })} />
       ))}
-      <p className="text-center text-xs text-muted">اضغط على أي بند لتسجيل مصروف عليه مباشرة.</p>
+      {data.orphan > 0 && (
+        <p className="rounded-xl bg-surface2 px-3 py-2 text-xs text-muted">مصروفات بقيمة <b className="num text-ink">{fmtShort(data.orphan)}</b> ر.ع تخص بنوداً محذوفة، وما زالت محسوبة في المصروف الفعلي.</p>
+      )}
+      <p className="text-center text-xs text-muted">اضغط على البند لتسجيل مصروف عليه، واسحبه لليسار لحذفه.</p>
+
+      {editor && (
+        <ItemSheet item={editor.item} defaults={editor.defaults} onClose={() => setEditor(null)} onDelete={removeItem}
+          onSave={(patch) => {
+            if (editor.item) { act.updateCat(editor.item.id, patch); notify(`تم تحديث ${patch.name}`); }
+            else { act.addCat({ id: `c${uid()}`, custom: true, ...patch }); notify(`أُضيف بند ${patch.name}`); }
+            setEditor(null);
+          }} />
+      )}
     </div>
   );
 }
 
-function GroupBlock({ g, open, toggle, act, notify, openSheet }) {
-  const [editing, setEditing] = useState(null);
-  const [adding, setAdding] = useState(false);
+function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd }) {
   return (
     <Card className="overflow-hidden">
       <button onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-2.5 px-4 py-3 text-right">
@@ -267,22 +314,25 @@ function GroupBlock({ g, open, toggle, act, notify, openSheet }) {
             <span className="num">{g.list.length}</span> بنود · صُرف <span className="num">{fmtShort(g.spent)}</span> من <span className="num">{fmtShort(g.budget)}</span> ر.ع
           </span>
         </span>
-        {g.deficit > 0 ? <DeficitBadge v={g.deficit} /> : <span className={`num text-sm font-extrabold ${g.budget ? 'text-good' : 'text-muted'}`}>{fmtShort(g.remaining)}</span>}
+        <span className="flex flex-col items-end gap-0.5">
+          {g.deficit > 0 ? <DeficitBadge v={g.deficit} /> : <span className={`num text-sm font-extrabold ${g.budget ? 'text-good' : 'text-muted'}`}>{fmtShort(g.remaining)}</span>}
+          {view === 'card' && g.deficit === 0 && <span className="text-[10px] text-muted">متبقي</span>}
+        </span>
         <ChevronDown size={18} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <>
-          <ul className="divide-y divide-line border-t border-line">
-            {g.list.map((c) => (
-              <ItemRow key={c.id} c={c} editing={editing === c.id} setEditing={setEditing} onOpen={() => openSheet(c.id)}
-                onSave={(v) => { act.setBudget(c.id, v); setEditing(null); notify(`تم تعديل مخصص ${c.name}`); }}
-                onDelete={c.custom ? () => { act.delCat(c.id); setEditing(null); notify(`تم حذف ${c.name}`); } : null} />
-            ))}
-          </ul>
+          {g.list.length > 0 ? (
+            <ul className="divide-y divide-line border-t border-line">
+              {g.list.map((c) => (
+                <SwipeRow key={c.id} id={c.id} swiped={swiped} setSwiped={setSwiped} onDelete={() => onRemove(c)}>
+                  <ItemRow c={c} view={view} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} />
+                </SwipeRow>
+              ))}
+            </ul>
+          ) : <p className="border-t border-line px-4 py-3 text-sm text-muted">لا توجد بنود هنا.</p>}
           <div className="border-t border-line px-4 py-1.5">
-            {adding
-              ? <NewItem group={g.id} onCancel={() => setAdding(false)} onSave={(c) => { act.addCat(c); setAdding(false); notify(`أُضيف بند ${c.name}`); }} />
-              : <button onClick={() => setAdding(true)} className="flex h-10 items-center gap-1.5 text-sm font-bold text-accent"><Plus size={16} />إضافة بند</button>}
+            <button onClick={onAdd} className="flex h-10 items-center gap-1.5 text-sm font-bold text-accent"><Plus size={16} />إضافة بند</button>
           </div>
         </>
       )}
@@ -290,76 +340,161 @@ function GroupBlock({ g, open, toggle, act, notify, openSheet }) {
   );
 }
 
-function ItemRow({ c, editing, setEditing, onOpen, onSave, onDelete }) {
-  const [val, setVal] = useState(String(c.budget));
-  useEffect(() => { if (editing) setVal(String(c.budget)); }, [editing, c.budget]);
-  const Icon = ITEM_ICONS[c.id] || Tag;
-  const deficit = c.spent > c.budget ? round3(c.spent - c.budget) : 0;
+// سحب لليسار يكشف زر الحذف (مثل البريد في iOS)
+function SwipeRow({ id, swiped, setSwiped, onDelete, children }) {
+  const open = swiped === id;
+  const [confirm, setConfirm] = useState(false);
+  const [drag, setDrag] = useState(null);
+  const t = useRef(null);
+  const W = confirm ? 156 : 84;
+  useEffect(() => { if (!open) setConfirm(false); }, [open]);
+  const base = open ? -W : 0;
+  const x = drag ?? base;
+
+  const onTouchStart = (e) => {
+    if (swiped && swiped !== id) setSwiped(null);
+    const p = e.touches[0];
+    t.current = { x: p.clientX, y: p.clientY, dir: null, moved: false, last: base };
+  };
+  const onTouchMove = (e) => {
+    const s = t.current; if (!s) return;
+    const p = e.touches[0];
+    const dx = p.clientX - s.x, dy = p.clientY - s.y;
+    if (!s.dir) {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.dir = 'h';
+      else if (Math.abs(dy) > 8) s.dir = 'v';
+    }
+    if (s.dir === 'h') {
+      s.moved = true;
+      s.last = Math.max(-W - 40, Math.min(0, base + dx));
+      setDrag(s.last);
+    }
+  };
+  const onTouchEnd = () => {
+    const s = t.current; if (!s) return;
+    if (s.dir === 'h') setSwiped(s.last < -W / 2 ? id : null);
+    setDrag(null);
+  };
+  const onClickCapture = (e) => {
+    if (t.current?.moved) { t.current.moved = false; e.stopPropagation(); e.preventDefault(); return; }
+    if (open) { setSwiped(null); e.stopPropagation(); e.preventDefault(); }
+  };
+
   return (
-    <li>
-      <div role="button" tabIndex={0} aria-label={`تسجيل مصروف على ${c.name}`}
-        onClick={() => !editing && onOpen()} onKeyDown={(e) => { if (!editing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(); } }}
-        className="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition active:bg-surface2">
-        <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${TONE[c.s].soft}`}><Icon size={17} /></div>
-        <div className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-bold">{c.name}</span>
-          <div className="mt-1 flex items-center gap-2">
-            <AccTag id={c.account} />
-            <div className="min-w-0 flex-1"><Bar spent={c.spent} budget={c.budget} h="h-1" /></div>
-          </div>
-        </div>
-        <div className="w-[88px] shrink-0 text-left leading-tight">
-          {deficit > 0 ? <DeficitBadge v={deficit} /> : c.s === 'done' ? (
-            <span className="inline-flex items-center gap-0.5 text-xs font-extrabold text-good"><Check size={13} strokeWidth={3} />مدفوع</span>
-          ) : (
-            <>
-              <span className={`num block text-[15px] font-extrabold ${c.s === 'warn' ? 'text-warn' : c.s === 'idle' ? 'text-muted' : 'text-good'}`}>{fmtShort(c.remaining)}</span>
-              <span className="num block text-[10px] text-muted">متبقي من {fmtShort(c.budget)}</span>
-            </>
-          )}
-        </div>
-        <button onClick={(e) => { e.stopPropagation(); setEditing(editing ? null : c.id); }} aria-label={`تعديل مخصص ${c.name}`}
-          className="-me-2 grid h-9 w-8 shrink-0 place-items-center rounded-lg text-muted/70 hover:bg-surface2"><Pencil size={14} /></button>
+    <li className="relative overflow-hidden">
+      <div className="absolute inset-y-0 right-0 flex bg-bad" style={{ width: Math.max(W, -x) }} aria-hidden={!open}>
+        <button tabIndex={open ? 0 : -1} onClick={() => (confirm ? onDelete() : setConfirm(true))}
+          className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-2 text-sm font-extrabold text-white">
+          <Trash2 size={18} />{confirm ? 'تأكيد حذف البند؟' : 'حذف'}
+        </button>
       </div>
-      {editing && (
-        <form className="flex items-center gap-2 bg-surface2/60 px-4 py-2.5" onSubmit={(e) => { e.preventDefault(); const v = parseFloat(val); if (!isNaN(v) && v >= 0) onSave(round3(v)); }}>
-          <label htmlFor={`b-${c.id}`} className="whitespace-nowrap text-xs font-bold text-muted">المخصص</label>
-          <input id={`b-${c.id}`} type="number" inputMode="decimal" step="0.001" min="0" value={val} onChange={(e) => setVal(e.target.value)} className="input num h-10 flex-1 bg-surface" autoFocus />
-          <button type="submit" aria-label="حفظ" className="grid h-10 w-10 place-items-center rounded-xl bg-accent text-white"><Check size={17} /></button>
-          <button type="button" aria-label="إلغاء" onClick={() => setEditing(null)} className="grid h-10 w-10 place-items-center rounded-xl bg-surface text-muted border border-line"><X size={17} /></button>
-          {onDelete && <button type="button" aria-label="حذف البند" onClick={onDelete} className="grid h-10 w-10 place-items-center rounded-xl bg-bad/10 text-bad"><Trash2 size={17} /></button>}
-        </form>
-      )}
+      <div className="relative bg-surface" style={{ transform: `translateX(${x}px)`, transition: drag == null ? 'transform .25s ease' : 'none', touchAction: 'pan-y' }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onClickCapture={onClickCapture}>
+        {children}
+      </div>
     </li>
   );
 }
 
-function NewItem({ group, onSave, onCancel }) {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState('');
-  const [account, setAccount] = useState(group === 'fixed' ? 'salary' : 'applepay');
-  const [err, setErr] = useState('');
+function ItemRow({ c, view, onOpen, onEdit }) {
+  const Icon = ITEM_ICONS[c.id] || Tag;
+  const deficit = c.spent > c.budget ? round3(c.spent - c.budget) : 0;
+  const groupShort = GROUPS.find((g) => g.id === c.group)?.short;
   return (
-    <form className="flex flex-col gap-2 py-2" onSubmit={(e) => {
-      e.preventDefault();
-      const b = budget === '' ? 0 : parseFloat(budget);
-      if (!name.trim()) return setErr('اكتب اسم البند.');
-      if (isNaN(b) || b < 0) return setErr('أدخل مخصصاً صحيحاً (صفر أو أكثر).');
-      onSave({ id: `c${uid()}`, name: name.trim(), group, budget: round3(b), account, custom: true });
-    }}>
-      <input id={`n-name-${group}`} value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم البند" aria-label="اسم البند" className="input" autoFocus />
-      <div className="grid grid-cols-2 gap-2">
-        <input id={`n-b-${group}`} type="number" inputMode="decimal" step="0.001" min="0" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="المخصص ر.ع" aria-label="المخصص" className="input num" />
-        <select id={`n-a-${group}`} value={account} onChange={(e) => setAccount(e.target.value)} aria-label="البطاقة" className="input">
-          {Object.entries(ACCOUNTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+    <div role="button" tabIndex={0} aria-label={`تسجيل مصروف على ${c.name}`}
+      onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      className="flex cursor-pointer select-none items-center gap-3 px-4 py-2.5 transition active:bg-surface2">
+      <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${TONE[c.s].soft}`}><Icon size={17} /></div>
+      <div className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-bold">{c.name}</span>
+        <div className="mt-1 flex items-center gap-2">
+          {view === 'card'
+            ? <span className="whitespace-nowrap rounded-md bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted">{groupShort}</span>
+            : <AccTag id={c.account} />}
+          <div className="min-w-0 flex-1"><Bar spent={c.spent} budget={c.budget} h="h-1" /></div>
+        </div>
       </div>
-      {err && <p className="text-sm font-bold text-bad">{err}</p>}
-      <div className="grid grid-cols-2 gap-2">
-        <button type="submit" className="h-11 rounded-xl bg-accent font-bold text-white">إضافة</button>
-        <button type="button" onClick={onCancel} className="h-11 rounded-xl bg-surface2 font-bold text-muted">إلغاء</button>
+      <div className="w-[88px] shrink-0 text-left leading-tight">
+        {deficit > 0 ? <DeficitBadge v={deficit} /> : c.s === 'done' ? (
+          <span className="inline-flex items-center gap-0.5 text-xs font-extrabold text-good"><Check size={13} strokeWidth={3} />مدفوع</span>
+        ) : (
+          <>
+            <span className={`num block text-[15px] font-extrabold ${c.s === 'warn' ? 'text-warn' : c.s === 'idle' ? 'text-muted' : 'text-good'}`}>{fmtShort(c.remaining)}</span>
+            <span className="num block text-[10px] text-muted">متبقي من {fmtShort(c.budget)}</span>
+          </>
+        )}
       </div>
-    </form>
+      <button onClick={(e) => { e.stopPropagation(); onEdit(); }} aria-label={`تعديل ${c.name}`}
+        className="-me-2 grid h-9 w-8 shrink-0 place-items-center rounded-lg text-muted/70 hover:bg-surface2"><Pencil size={14} /></button>
+    </div>
+  );
+}
+
+// نافذة تعديل / إضافة بند
+function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
+  const [name, setName] = useState(item?.name || '');
+  const [budget, setBudget] = useState(item ? String(item.budget) : '');
+  const [group, setGroup] = useState(item?.group || defaults?.group || 'daily');
+  const [account, setAccount] = useState(item?.account || defaults?.account || 'applepay');
+  const [confirm, setConfirm] = useState(false);
+  const [err, setErr] = useState('');
+  useModal(onClose);
+  const submit = (e) => {
+    e.preventDefault();
+    const b = budget === '' ? 0 : parseFloat(budget);
+    if (!name.trim()) return setErr('اكتب اسم البند.');
+    if (isNaN(b) || b < 0) return setErr('أدخل مخصصاً صحيحاً (صفر أو أكثر).');
+    onSave({ name: name.trim(), budget: round3(b), group, account });
+  };
+  return (
+    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
+      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="item-title"
+        className="sheet-in gutter flex max-h-[92vh] w-full max-w-md flex-col gap-3.5 overflow-y-auto rounded-t-3xl bg-surface pt-3"
+        style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
+        <div className="flex items-center gap-2">
+          <h2 id="item-title" className="flex-1 text-xl font-extrabold">{item ? 'تعديل البند' : 'بند جديد'}</h2>
+          {item && (
+            <button type="button" onClick={() => (confirm ? onDelete(item) : setConfirm(true))} aria-label="حذف البند"
+              className={`flex h-10 items-center gap-1 rounded-full px-3 text-sm font-bold transition ${confirm ? 'bg-bad text-white' : 'bg-bad/10 text-bad'}`}>
+              <Trash2 size={17} />{confirm ? 'تأكيد حذف البند؟' : ''}
+            </button>
+          )}
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="i-name" className="text-sm font-bold text-muted">اسم البند</label>
+          <input id="i-name" value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} className="input" placeholder="مثال: هدايا" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="i-budget" className="text-sm font-bold text-muted">المخصص (ر.ع)</label>
+          <input id="i-budget" type="number" inputMode="decimal" step="0.001" min="0" value={budget} onChange={(e) => { setBudget(e.target.value); setErr(''); }} className="input num text-lg font-bold" placeholder="0" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-bold text-muted">البطاقة / الحساب</span>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="البطاقة">
+            {Object.entries(ACCOUNTS).map(([k, l]) => {
+              const Icon = ACC_ICONS[k];
+              return (
+                <button key={k} type="button" role="radio" aria-checked={account === k} onClick={() => setAccount(k)}
+                  className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-sm font-bold transition ${account === k ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted'}`}>
+                  <Icon size={15} />{l}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="i-group" className="text-sm font-bold text-muted">الفئة</label>
+          <select id="i-group" value={group} onChange={(e) => setGroup(e.target.value)} className="input">
+            {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+          </select>
+        </div>
+        {item && item.spent > 0 && <p className="text-xs text-muted">تغيير البطاقة ينقل مصروفات هذا البند المسجلة إلى البطاقة الجديدة.</p>}
+        {err && <p className="text-sm font-bold text-bad" role="alert">{err}</p>}
+        <button type="submit" className="flex h-13 min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />{item ? 'حفظ التعديلات' : 'إضافة البند'}</button>
+      </form>
+    </div>
   );
 }
 
@@ -691,9 +826,58 @@ function ReportModal({ data, onClose, notify }) {
   const [fallback, setFallback] = useState('');
   const text = useMemo(() => reportText(data), [data]);
 
+  const articleRef = useRef(null);
+  const [pdf, setPdf] = useState({ state: 'idle' }); // idle | busy | ready | error
+  const fileName = `salary-report-${todayISO()}.pdf`;
+
   const doPrint = () => {
     try { window.print(); } catch (e) { /* بعض العارضات تمنع الطباعة */ }
   };
+  const sharePdf = async (file, url) => {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'تقرير مصاريف الراتب' }); return true; }
+      catch (e) { if (e && e.name === 'AbortError') return true; }
+    }
+    // تحميل مباشر كبديل
+    try {
+      const a = document.createElement('a');
+      a.href = url; a.download = fileName; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      return true;
+    } catch (e) { return false; }
+  };
+  const doPdf = async () => {
+    if (pdf.state === 'ready') { await sharePdf(pdf.file, pdf.url); return; }
+    setPdf({ state: 'busy' });
+    try {
+      const wrap = document.createElement('div');
+      wrap.className = 'pdf-light';
+      wrap.dir = 'rtl';
+      const clone = articleRef.current.cloneNode(true);
+      clone.removeAttribute('style');
+      clone.className = 'pdf-report';
+      // html2canvas يعكس «ر.ع» بسبب النقطة بين الحرفين، فنكتب «ريال» في نسخة PDF
+      const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) n.nodeValue = n.nodeValue.replace(/ر\.ع/g, 'ريال');
+      wrap.appendChild(clone);
+      const blob = await html2pdf().set({
+        margin: [10, 10, 12, 10],
+        filename: fileName,
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true, letterRendering: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pdf-avoid'] },
+      }).from(wrap).outputPdf('blob');
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      setPdf({ state: 'ready', file, url });
+      await sharePdf(file, url);
+    } catch (e) {
+      setPdf({ state: 'error' });
+    }
+  };
+  useEffect(() => () => { if (pdf.url) URL.revokeObjectURL(pdf.url); }, [pdf.url]);
+
   const doShare = async () => {
     if (navigator.share) {
       try { await navigator.share({ title: 'تقرير مصاريف الراتب', text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -711,12 +895,24 @@ function ReportModal({ data, onClose, notify }) {
         <div className="no-print gutter flex flex-col gap-3 border-b border-line pt-3 pb-3">
           <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-extrabold">تصدير / طباعة التقرير</h2>
+            <h2 className="text-lg font-extrabold">تصدير / مشاركة التقرير</h2>
             <button onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
           </div>
+          <button onClick={doPdf} disabled={pdf.state === 'busy'} aria-busy={pdf.state === 'busy'}
+            className="flex h-13 min-h-[52px] items-center justify-center gap-2 rounded-xl bg-accent text-base font-extrabold text-white disabled:opacity-80">
+            {pdf.state === 'busy' ? <><LoaderCircle size={20} className="animate-spin" />جارٍ إنشاء ملف PDF…</>
+              : pdf.state === 'ready' ? <><Share2 size={19} />مشاركة ملف PDF الجاهز</>
+                : <><Download size={19} />تحميل / مشاركة كـ PDF</>}
+          </button>
+          {pdf.state === 'ready' && (
+            <a href={pdf.url} download={fileName} target="_blank" rel="noopener" className="-mt-1 flex items-center justify-center gap-1.5 text-xs font-bold text-accent">
+              <ExternalLink size={13} />فتح الملف إن لم تظهر نافذة المشاركة
+            </a>
+          )}
+          {pdf.state === 'error' && <p className="text-xs font-bold text-bad">تعذّر إنشاء الملف. جرّب المشاركة النصية أو الطباعة.</p>}
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={doPrint} className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-accent text-sm font-extrabold text-white"><Printer size={18} />طباعة / حفظ كـ PDF</button>
-            <button onClick={doShare} className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 text-sm font-extrabold text-accent"><Share2 size={18} />نسخ / مشاركة نصياً</button>
+            <button onClick={doShare} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 text-[13px] font-extrabold text-accent"><Share2 size={16} />نسخ / مشاركة نصياً</button>
+            <button onClick={doPrint} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-line text-[13px] font-extrabold text-muted"><Printer size={16} />طباعة</button>
           </div>
           {fallback && (
             <div className="flex flex-col gap-1.5">
@@ -726,7 +922,7 @@ function ReportModal({ data, onClose, notify }) {
           )}
         </div>
 
-        <article className="gutter flex-1 overflow-y-auto py-4" style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))' }}>
+        <article ref={articleRef} className="gutter flex-1 overflow-y-auto py-4" style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))' }}>
           <header className="flex items-end justify-between border-b-2 border-hero pb-2">
             <h1 id="report-title" className="text-xl font-extrabold">تقرير مصاريف الراتب</h1>
             <span className="text-xs text-muted">{dateLabel(todayISO())}</span>
@@ -758,6 +954,9 @@ function ReportModal({ data, onClose, notify }) {
                   ))}
                 </tbody>
               ))}
+              {data.orphan > 0 && (
+                <tbody><tr className="group-row"><td colSpan={3}>مصروفات بنود محذوفة</td><td className="num">{fmtShort(data.orphan)}</td><td /></tr></tbody>
+              )}
             </table>
           </div>
 

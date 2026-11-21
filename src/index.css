@@ -96,3 +96,14 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
   .rtable tr { break-inside: avoid; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* نسخة PDF: ألوان فاتحة دائماً وعرض ثابت، بلا تباعد أحرف حتى تتصل الحروف العربية */
+.pdf-light {
+  --bg: 255 255 255; --surface: 255 255 255; --surface2: 241 244 248; --ink: 15 23 42; --muted: 100 116 139; --line: 226 232 240;
+  --hero: 51 65 85; --good: 5 150 105; --warn: 217 119 6; --bad: 220 38 38; --accent: 13 148 136;
+  width: 100%; box-sizing: border-box; padding: 0 2px; background: #fff; color: rgb(15 23 42); font-family: Tajawal, Tahoma, sans-serif; direction: rtl; font-size: 14px;
+}
+.pdf-light * { letter-spacing: normal !important; }
+.pdf-light .pdf-report { padding: 0; }
+.pdf-light .rtable { font-size: 12.5px; }
+.pdf-light .overflow-x-auto { overflow: visible !important; }
