@@ -107,3 +107,43 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .pdf-light .pdf-report { padding: 0; }
 .pdf-light .rtable { font-size: 12.5px; }
 .pdf-light .overflow-x-auto { overflow: visible !important; }
+
+/* ألوان الفئات الباستيل: درجة فاتحة في الوضع الفاتح، ودرجة عميقة هادئة في الداكن، والنص يبقى بلون الحبر للتباين */
+:root {
+  --pastel-lavender: #EDE4FF; --pastel-blue: #E3F2FD; --pastel-mint: #E3F5EA; --pastel-peach: #FFEBDD;
+  --pastel-yellow: #FFF5D6; --pastel-pink: #FCE7F0; --pastel-teal: #DFF4F1; --pastel-gray: #F1F3F5;
+  --pastel-lavender-edge: #D9C9FB; --pastel-blue-edge: #C4E0F8; --pastel-mint-edge: #C3E8D1; --pastel-peach-edge: #F7D2B8;
+  --pastel-yellow-edge: #F2E2A8; --pastel-pink-edge: #F3C9DA; --pastel-teal-edge: #BDE5DF; --pastel-gray-edge: #DDE1E6;
+  /* بطاقة الراتب البنفسجية */
+  --hp1: 240 232 255;  /* #F0E8FF */
+  --hp2: 221 208 250;  /* #DDD0FA */
+  --hpink: 76 52 124;  /* #4C347C */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pastel-lavender: #2C2545; --pastel-blue: #1D2C3D; --pastel-mint: #1C3026; --pastel-peach: #3A2A20;
+    --pastel-yellow: #35301C; --pastel-pink: #3A2331; --pastel-teal: #1A3331; --pastel-gray: #262C33;
+    --pastel-lavender-edge: #463A6E; --pastel-blue-edge: #2E4760; --pastel-mint-edge: #2E4D3C; --pastel-peach-edge: #5A4130;
+    --pastel-yellow-edge: #544B2A; --pastel-pink-edge: #5A374C; --pastel-teal-edge: #2A504C; --pastel-gray-edge: #3A424C;
+    --hp1: 43 35 66; --hp2: 61 48 94; --hpink: 230 219 255;
+  }
+}
+:root[data-theme="dark"] {
+  --pastel-lavender: #2C2545; --pastel-blue: #1D2C3D; --pastel-mint: #1C3026; --pastel-peach: #3A2A20;
+  --pastel-yellow: #35301C; --pastel-pink: #3A2331; --pastel-teal: #1A3331; --pastel-gray: #262C33;
+  --pastel-lavender-edge: #463A6E; --pastel-blue-edge: #2E4760; --pastel-mint-edge: #2E4D3C; --pastel-peach-edge: #5A4130;
+  --pastel-yellow-edge: #544B2A; --pastel-pink-edge: #5A374C; --pastel-teal-edge: #2A504C; --pastel-gray-edge: #3A424C;
+  --hp1: 43 35 66; --hp2: 61 48 94; --hpink: 230 219 255;
+}
+.pastel-lavender { --pc: var(--pastel-lavender); --pe: var(--pastel-lavender-edge); }
+.pastel-blue { --pc: var(--pastel-blue); --pe: var(--pastel-blue-edge); }
+.pastel-mint { --pc: var(--pastel-mint); --pe: var(--pastel-mint-edge); }
+.pastel-peach { --pc: var(--pastel-peach); --pe: var(--pastel-peach-edge); }
+.pastel-yellow { --pc: var(--pastel-yellow); --pe: var(--pastel-yellow-edge); }
+.pastel-pink { --pc: var(--pastel-pink); --pe: var(--pastel-pink-edge); }
+.pastel-teal { --pc: var(--pastel-teal); --pe: var(--pastel-teal-edge); }
+.pastel-gray { --pc: var(--pastel-gray); --pe: var(--pastel-gray-edge); }
+/* البطاقة الخارجية فقط: الخلفية والإطار؛ صفوف البنود الداخلية تبقى بيضاء كما هي */
+.pastel-card { background: var(--pc) !important; border-color: var(--pe) !important; }
+.pastel-card .pastel-inner { border-color: var(--pe) !important; }
+.swatch { background: var(--pc); border: 2px solid var(--pe); }

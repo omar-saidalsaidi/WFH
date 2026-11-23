@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   TrendingUp, TrendingDown, BellRing, CircleAlert, CalendarClock, HandCoins, Target, FlaskConical, DatabaseBackup,
   FileSpreadsheet, FileText, ChevronLeft, ArrowRight, Plus, Pencil, Trash2, Download, Upload, Check, RotateCcw,
-  ShieldCheck, Copy, LoaderCircle,
+  ShieldCheck, Copy, LoaderCircle, Lightbulb,
 } from 'lucide-react';
 import { fmt, fmtShort, dateLabel, todayISO, uid, listSnapshots, saveSnapshot } from './data.js';
 import {
@@ -12,6 +12,7 @@ import {
 import { makeBackup, validateBackup } from './backup.js';
 import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 import { Card, Money, Sheet, Field, PrimaryButton, Progress, pctText, useMeta, TONE } from './ui.jsx';
+import { SpendingBehavior } from './insightsView.jsx';
 
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmtShort(Math.abs(v))}`;
 const monthName = (label) => label.replace(/^راتب شهر /, '');
@@ -208,6 +209,7 @@ function Stat({ k, v, sub, tone, signed: sg }) {
 
 // ================= تبويب الأدوات =================
 const TOOLS = [
+  { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'المخطط مقابل الفعلي واقتراحات توفير عملية', icon: Lightbulb },
   { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
   { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
   { id: 'scenario', title: 'محاكاة السيناريوهات', sub: 'جرّب تغييرات دون المساس ببياناتك', icon: FlaskConical },
@@ -243,6 +245,7 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
         <button onClick={() => setView(null)} aria-label="رجوع للأدوات" className="grid h-10 w-10 place-items-center rounded-xl bg-surface2"><ArrowRight size={19} /></button>
         <h1 className="text-xl font-extrabold">{tool.title}</h1>
       </div>
+      {view === 'behavior' && <SpendingBehavior store={store} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
       {view === 'goals' && <Goals store={store} month={month} act={act} notify={notify} />}
       {view === 'scenario' && <Scenario month={month} />}

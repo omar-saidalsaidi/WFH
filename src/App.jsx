@@ -4,7 +4,7 @@ import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
   PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils, ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors,
-  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2, CalendarDays, CalendarPlus, LayoutGrid,
+  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2, CalendarDays, CalendarPlus, LayoutGrid, Palette,
 } from 'lucide-react';
 import {
   COMPARE_IDS, STORAGE_KEY, STORE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, loadStore, monthFromTemplate, nextPeriod,
@@ -17,6 +17,8 @@ import {
 import { monthSummary, monthAlerts, closingBalance } from './finance.js';
 import { ForecastCard, AlertsCard, PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
 import { MonthReport, AnnualReport, annualText } from './reports.jsx';
+import { applySectionOp } from './sections.js';
+import { ManageSectionsSheet, SectionRenameSheet, ColorSheet } from './sectionsView.jsx';
 import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 
 // ---------- التخزين ----------
@@ -82,7 +84,7 @@ export default function App() {
     });
     const catMap = Object.fromEntries(cats.map((c) => [c.id, c]));
     const groups = state.sections.map((sec) => {
-      const g = { id: sec.id, label: sec.name, short: sec.name, color: SECTION_COLORS[sec.id] || 'rgb(var(--muted))' };
+      const g = { id: sec.id, label: sec.name, short: sec.name, color: SECTION_COLORS[sec.id] || 'rgb(var(--muted))', colorKey: sec.color || null, section: sec };
       const list = cats.filter((c) => c.group === g.id);
       const budget = round3(list.reduce((a, c) => a + c.budget, 0));
       const spent = round3(list.reduce((a, c) => a + c.spent, 0));
@@ -128,7 +130,8 @@ export default function App() {
     addCat: (c) => setState((s) => ({ ...s, categories: [...s.categories, c] })),
     // حذف البند لا يمسح مصروفاته المسجلة، فتبقى ضمن المصروف الفعلي
     delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) })),
-    renameSection: (id, name) => setState((s) => ({ ...s, sections: s.sections.map((x) => (x.id === id ? { ...x, name } : x)) })),
+    // عمليات الفئات: تُطبَّق على الشهر الحالي فقط أو عليه وعلى الأشهر اللاحقة، ولا تمس الأشهر السابقة
+    sectionOp: (op, scope) => { const r = applySectionOp(store, op, scope); setStore(r.store); return r; },
     renameCards: (names) => setState((s) => ({ ...s, cards: s.cards.map((x) => (names[x.id] ? { ...x, name: names[x.id] } : x)) })),
     reset: () => { saveSnapshot(store, 'قبل مسح الشهر'); setState((m) => ({ ...m, ...defaultState() })); },
     setSalary: (salary) => setState((m) => ({ ...m, salary })),
@@ -176,7 +179,7 @@ export default function App() {
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} />}
+        {tab === 'home' && <HomeTab data={data} store={store} month={state} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} />}
         {tab === 'stats' && <StatsTab data={data} store={store} />}
         {tab === 'tools' && <ToolsTab store={store} month={state} act={act} notify={setToast} view={toolView} setView={setToolView} openReport={(m) => { setReportMode(m); setReport(true); }} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
@@ -236,13 +239,15 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
+function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSalary }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
   const [editor, setEditor] = useState(null); // { item } أو { defaults }
   const [rename, setRename] = useState(null); // { kind: 'section' | 'card', id, name }
   const [manageCards, setManageCards] = useState(false);
+  const [manageSections, setManageSections] = useState(false);
+  const [colorFor, setColorFor] = useState(null);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
   // العجز يُقاس على المتاح (الراتب + الرصيد المرحّل)
@@ -255,35 +260,35 @@ function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
 
   return (
     <div className="flex flex-col gap-4 fade-in">
-      <section className="rounded-3xl bg-gradient-to-bl from-hero to-hero2 p-5 text-white">
+      <section className="salary-card rounded-3xl border border-hp2 bg-gradient-to-bl from-hp1 via-hp1 to-hp2 p-5 text-hpink">
         {over > 0 && (
-          <div className="mb-3 flex w-fit items-center gap-2 rounded-full bg-bad px-3 py-1.5 text-sm font-extrabold">
+          <div className="mb-3 flex w-fit items-center gap-2 rounded-full bg-bad px-3 py-1.5 text-sm font-extrabold text-white">
             <TriangleAlert size={16} />عجز: تجاوزت {data.carryIn ? 'المتاح' : 'الراتب'} بـ <span className="num">{fmtShort(over)}</span> ر.ع
           </div>
         )}
-        <p className="text-[13px] text-white/70">المتبقي الفعلي من الراتب · {data.label.replace(/^راتب /, '')}</p>
-        <p className="mt-1 text-[40px] font-extrabold leading-none"><Money v={data.remaining} /></p>
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15">
-          <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 ? 'bg-bad' : 'bg-white/85'}`} style={{ width: `${pct}%` }} />
+        <p className="text-[13px] font-medium text-hpink/75">المتبقي الفعلي من الراتب · {data.label.replace(/^راتب /, '')}</p>
+        <p className="mt-1 text-[40px] font-extrabold leading-none"><Money v={data.remaining} className={data.remaining < 0 ? 'text-bad' : ''} /></p>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-hpink/12">
+          <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 ? 'bg-bad' : 'bg-hpink/80'}`} style={{ width: `${pct}%` }} />
         </div>
         <dl className="mt-4 grid grid-cols-3 text-center">
           <div>
-            <dt className="text-[11px] text-white/65">الراتب</dt>
+            <dt className="text-[11px] font-medium text-hpink/70">الراتب</dt>
             <dd>
-              <button onClick={onEditSalary} aria-label="تعديل مبلغ الراتب" className="mx-auto mt-0.5 flex items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-lg font-extrabold">
+              <button onClick={onEditSalary} aria-label="تعديل مبلغ الراتب" className="mx-auto mt-0.5 flex items-center gap-1 rounded-lg bg-hp1/80 px-2 py-0.5 text-lg font-extrabold ring-1 ring-hpink/20">
                 <span className="num">{fmtShort(data.salary)}</span><Pencil size={12} className="opacity-70" />
               </button>
             </dd>
           </div>
           {[['الموزع', data.allocated], ['المصروف الفعلي', data.spent]].map(([k, v]) => (
-            <div key={k} className="border-r border-white/15">
-              <dt className="text-[11px] text-white/65">{k}</dt>
+            <div key={k} className="border-r border-hpink/15">
+              <dt className="text-[11px] font-medium text-hpink/70">{k}</dt>
               <dd className="num mt-0.5 text-lg font-extrabold">{fmtShort(v)}</dd>
             </div>
           ))}
         </dl>
         {data.carryIn !== 0 && (
-          <p className="mt-3 rounded-xl bg-white/10 px-3 py-1.5 text-center text-xs">
+          <p className="mt-3 rounded-xl bg-hp1/70 px-3 py-1.5 text-center text-xs">
             رصيد مرحّل من الشهر السابق: <b className="num" dir="ltr">{data.carryIn > 0 ? '+' : '−'}{fmtShort(Math.abs(data.carryIn))}</b> ر.ع · المتاح <b className="num">{fmtShort(data.available)}</b>
           </p>
         )}
@@ -301,8 +306,8 @@ function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
             </button>
           ))}
         </div>
-        <button onClick={() => setManageCards(true)} className="flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl border border-line bg-surface px-2.5 text-[11px] font-bold text-muted">
-          <Settings2 size={17} className="text-accent" />إدارة البطاقات
+        <button onClick={() => (view === 'card' ? setManageCards(true) : setManageSections(true))} className="flex w-[78px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl border border-line bg-surface px-1.5 text-[11px] font-bold text-muted">
+          <Settings2 size={17} className="text-accent" />{view === 'card' ? 'إدارة البطاقات' : 'إدارة الفئات'}
         </button>
       </div>
 
@@ -311,6 +316,7 @@ function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
           openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem}
           onEdit={(c) => setEditor({ item: c })}
           onRename={() => setRename({ kind: view === 'card' ? 'card' : 'section', id: g.id, name: g.label })}
+          onColor={view === 'card' ? null : () => setColorFor(g.section)}
           onAdd={() => setEditor({ defaults: view === 'card' ? { account: g.id, group: g.id === 'salary' ? 'fixed' : 'daily' } : { group: g.id, account: g.id === 'fixed' ? 'salary' : 'applepay' } })} />
       ))}
       {data.orphan > 0 && (
@@ -318,10 +324,15 @@ function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
       )}
       <p className="text-center text-xs text-muted">اضغط على البند لتسجيل مصروف عليه، واسحبه لليسار لحذفه.</p>
 
-      {rename && (
+      {rename && rename.kind === 'section' && (
+        <SectionRenameSheet store={store} section={{ id: rename.id, name: rename.name }} onOp={act.sectionOp} notify={notify} onClose={() => setRename(null)} />
+      )}
+      {colorFor && <ColorSheet store={store} section={colorFor} onOp={act.sectionOp} notify={notify} onClose={() => setColorFor(null)} />}
+      {manageSections && <ManageSectionsSheet store={store} month={month} onOp={act.sectionOp} notify={notify} onClose={() => setManageSections(false)} />}
+      {rename && rename.kind === 'card' && (
         <RenameSheet title={rename.kind === 'card' ? 'تغيير اسم البطاقة' : 'تغيير اسم الفئة'} value={rename.name} onClose={() => setRename(null)}
           onSave={(name) => {
-            if (rename.kind === 'card') act.renameCards({ [rename.id]: name }); else act.renameSection(rename.id, name);
+            act.renameCards({ [rename.id]: name });
             notify('تم تغيير الاسم'); setRename(null);
           }} />
       )}
@@ -341,9 +352,9 @@ function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
   );
 }
 
-function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename }) {
+function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename, onColor }) {
   return (
-    <Card className="overflow-hidden">
+    <Card className={`overflow-hidden ${g.colorKey && view !== 'card' ? `pastel-${g.colorKey} pastel-card` : ''}`}>
       <div className="flex items-center">
         <button onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2.5 py-3 ps-4 text-right">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
@@ -359,12 +370,15 @@ function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRem
           </span>
           <ChevronDown size={18} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
-        <button onClick={onRename} aria-label={`تغيير اسم ${g.label}`} className="mx-1.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted/70 hover:bg-surface2"><Pencil size={14} /></button>
+        <div className="me-1 flex shrink-0 flex-col">
+          <button onClick={onRename} aria-label={`تغيير اسم ${g.label}`} className="grid h-8 w-9 place-items-center rounded-lg text-muted/80 hover:bg-surface2"><Pencil size={14} /></button>
+          {onColor && <button onClick={onColor} aria-label={`لون ${g.label}`} className="grid h-8 w-9 place-items-center rounded-lg text-muted/80 hover:bg-surface2"><Palette size={14} /></button>}
+        </div>
       </div>
       {open && (
         <>
           {g.list.length > 0 ? (
-            <ul className="divide-y divide-line border-t border-line">
+            <ul className="pastel-inner divide-y divide-line border-t border-line">
               {g.list.map((c) => (
                 <SwipeRow key={c.id} id={c.id} swiped={swiped} setSwiped={setSwiped} onDelete={() => onRemove(c)}>
                   <ItemRow c={c} view={view} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} />
@@ -372,7 +386,7 @@ function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRem
               ))}
             </ul>
           ) : <p className="border-t border-line px-4 py-3 text-sm text-muted">لا توجد بنود هنا.</p>}
-          <div className="border-t border-line px-4 py-1.5">
+          <div className="pastel-inner border-t border-line px-4 py-1.5">
             <button onClick={onAdd} className="flex h-10 items-center gap-1.5 text-sm font-bold text-accent"><Plus size={16} />إضافة بند</button>
           </div>
         </>
