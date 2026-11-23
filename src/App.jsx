@@ -1,86 +1,28 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import html2pdf from 'html2pdf.js';
 import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
   PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils, ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors,
-  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2, CalendarDays, CalendarPlus,
+  Stethoscope, Siren, Tag, Flame, ChevronDown, Copy, Layers, Download, LoaderCircle, ExternalLink, Settings2, CalendarDays, CalendarPlus, LayoutGrid,
 } from 'lucide-react';
 import {
   COMPARE_IDS, STORAGE_KEY, STORE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, loadStore, monthFromTemplate, nextPeriod,
-  round3, todayISO, uid,
+  round3, todayISO, uid, saveSnapshot,
 } from './data.js';
-
-const ITEM_ICONS = {
-  jamiya: Users, rent: Building2, debt: HandCoins, saving: PiggyBank, net: Wifi, elec: Zap, water: Droplets,
-  fuel: Fuel, food: Utensils, ration: ShoppingCart, fun: Popcorn, oil: Wrench, laundry: WashingMachine,
-  tailor: Scissors, laser: Stethoscope, emergency: Siren,
-};
-const ACC_ICONS = { salary: Landmark, applepay: Smartphone, card1: CreditCard, card2: CreditCard };
-
-// ---------- أسماء الفئات والبطاقات (من الحالة) ----------
-const SECTION_COLORS = { fixed: 'var(--c-sky)', daily: 'var(--c-accent)', temp: 'var(--c-warn)', emergency: 'var(--c-bad)' };
-const CARD_COLORS = { salary: 'var(--c-sky)', applepay: 'var(--c-accent)', card1: 'var(--c-warn)', card2: 'rgb(var(--muted))' };
-const MetaContext = createContext({ sections: [], cards: [], cardName: (id) => id, sectionName: (id) => id });
-const useMeta = () => useContext(MetaContext);
-// النوافذ تُعرض مباشرة داخل body حتى لا تحبسها حركات الصفحة تحت الشريطين العلوي والسفلي
-const Portal = ({ children }) => createPortal(children, document.body);
-
-// ---------- الحالة اللونية ----------
-const status = (spent, budget) => {
-  if (budget <= 0) return spent > 0 ? 'bad' : 'idle';
-  const p = spent / budget;
-  if (p > 1.0001) return 'bad';
-  if (p > 0.9999) return 'done';
-  if (p >= 0.75) return 'warn';
-  return 'good';
-};
-const TONE = {
-  good: { bar: 'bg-good', text: 'text-good', soft: 'bg-good/10 text-good' },
-  done: { bar: 'bg-good', text: 'text-good', soft: 'bg-good/10 text-good' },
-  warn: { bar: 'bg-warn', text: 'text-warn', soft: 'bg-warn/12 text-warn' },
-  bad: { bar: 'bg-bad', text: 'text-bad', soft: 'bg-bad/10 text-bad' },
-  idle: { bar: 'bg-line', text: 'text-muted', soft: 'bg-surface2 text-muted' },
-};
+import {
+  ITEM_ICONS, ACC_ICONS, SECTION_COLORS, CARD_COLORS, MetaContext, useMeta, Portal, status, TONE,
+  Money, DeficitBadge, AccTag, Bar, Card, useModal,
+} from './ui.jsx';
+import { monthSummary, monthAlerts, closingBalance } from './finance.js';
+import { ForecastCard, AlertsCard, PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
+import { MonthReport, AnnualReport, annualText } from './reports.jsx';
+import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 
 // ---------- التخزين ----------
 function loadOpen() {
   try { const o = JSON.parse(localStorage.getItem(`${STORAGE_KEY}-open`)); if (o && typeof o === 'object') return o; } catch (e) { /* تجاهل */ }
   return { fixed: false, daily: true, temp: false, emergency: false };
-}
-
-// ---------- عناصر صغيرة ----------
-function Money({ v, className = '', sign = '' }) {
-  return (
-    <span className={`num whitespace-nowrap ${className}`} dir="ltr">
-      <span className="me-1 text-[0.6em] font-bold opacity-60">ر.ع</span>{sign}{fmt(v)}
-    </span>
-  );
-}
-function DeficitBadge({ v }) {
-  return <span className="num inline-flex whitespace-nowrap rounded-full bg-bad/10 px-2 py-0.5 text-xs font-extrabold text-bad ring-1 ring-bad/25">عجز: {fmtShort(v)} ر.ع</span>;
-}
-function AccTag({ id }) {
-  const { cardName } = useMeta();
-  const Icon = ACC_ICONS[id] || CreditCard;
-  return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted">
-      <Icon size={10} aria-hidden="true" />{cardName(id)}
-    </span>
-  );
-}
-function Bar({ spent, budget, h = 'h-1.5' }) {
-  const s = status(spent, budget);
-  const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : spent > 0 ? 100 : 0;
-  return (
-    <div className={`${h} w-full overflow-hidden rounded-full bg-surface2`}>
-      <div className={`${h} rounded-full ${TONE[s].bar} transition-all duration-500`} style={{ width: `${pct}%` }} />
-    </div>
-  );
-}
-function Card({ children, className = '' }) {
-  return <div className={`rounded-2xl border border-line bg-surface ${className}`}>{children}</div>;
 }
 
 // ---------- نص التقرير للمشاركة ----------
@@ -90,16 +32,18 @@ function reportText(data) {
   L.push(`تاريخ التقرير: ${dateLabel(todayISO())}`);
   L.push('');
   L.push(`الراتب: ${fmt(data.salary)} ر.ع`);
-  L.push(`الموزع: ${fmt(data.allocated)} ر.ع`);
-  L.push(`المصروف الفعلي: ${fmt(data.spent)} ر.ع`);
-  L.push(`المتبقي الفعلي: ${fmt(data.remaining)} ر.ع`);
-  if (data.spent > data.salary) L.push(`⚠️ عجز: تجاوز المصروف الراتب بـ ${fmtShort(data.spent - data.salary)} ر.ع`);
+  if (data.carryIn) L.push(`الرصيد المرحّل: ${fmt(data.carryIn)} ر.ع`);
+  L.push(`المخطط (الموزع): ${fmt(data.allocated)} ر.ع`);
+  L.push(`المدفوع فعلياً: ${fmt(data.spent)} ر.ع`);
+  L.push(`الرصيد الحالي: ${fmt(data.remaining)} ر.ع`);
+  L.push(`المتوقع نهاية الشهر: ${fmt(data.summary.forecast)} ر.ع`);
+  if (data.spent > data.available) L.push(`⚠️ عجز: تجاوز المدفوع المتاح بـ ${fmtShort(data.spent - data.available)} ر.ع`);
   for (const g of data.groups) {
     L.push('');
     L.push(`▪️ ${g.label} (${fmtShort(g.budget)} ر.ع)`);
     for (const c of g.list) {
       const tail = c.remaining < 0 ? `🔴 عجز ${fmtShort(-c.remaining)}` : `متبقي ${fmtShort(c.remaining)}`;
-      L.push(`- ${c.name}: صُرف ${fmtShort(c.spent)} من ${fmtShort(c.budget)} · ${tail}`);
+      L.push(`- ${c.name}: مخطط ${fmtShort(c.budget)} · مدفوع ${fmtShort(c.spent)}${c.exec != null ? ` (${Math.round(c.exec * 100)}٪)` : ''} · ${tail}`);
     }
   }
   if (data.orphan > 0) L.push(`\n(مصروفات لبنود محذوفة: ${fmtShort(data.orphan)} ر.ع)`);
@@ -162,8 +106,17 @@ export default function App() {
     const cardMap = Object.fromEntries(state.cards.map((c) => [c.id, c.name]));
     const sectionMap = Object.fromEntries(state.sections.map((x) => [x.id, x.name]));
     const meta = { sections: state.sections, cards: state.cards, cardName: (id) => cardMap[id] || id, sectionName: (id) => sectionMap[id] || id };
-    return { meta, label: state.label, period: state.period, salary: state.salary, cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: round3(state.salary - spent), history };
+    const summary = monthSummary(state, todayISO());
+    const itemInfo = Object.fromEntries(summary.items.map((i) => [i.id, i]));
+    for (const c of cats) c.exec = itemInfo[c.id]?.exec ?? null;
+    return {
+      meta, label: state.label, period: state.period, salary: state.salary, carryIn: summary.carryIn, available: summary.available,
+      summary, cats, catMap, groups, cardGroups, accounts, orphan, spent, allocated, remaining: summary.balance, history,
+    };
   }, [state]);
+  const alerts = useMemo(() => monthAlerts(state, store, todayISO()), [state, store]);
+  const [toolView, setToolView] = useState(null);
+  const [reportMode, setReportMode] = useState('month');
 
   const act = {
     addTx: (tx) => setState((s) => ({ ...s, transactions: [...s.transactions, { ...tx, id: uid(), created: Date.now() }] })),
@@ -171,28 +124,38 @@ export default function App() {
     updateCat: (id, patch) => setState((s) => ({
       ...s,
       categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-      transactions: patch.account ? s.transactions.map((t) => (t.catId === id ? { ...t, account: patch.account } : t)) : s.transactions,
     })),
     addCat: (c) => setState((s) => ({ ...s, categories: [...s.categories, c] })),
     // حذف البند لا يمسح مصروفاته المسجلة، فتبقى ضمن المصروف الفعلي
     delCat: (id) => setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) })),
     renameSection: (id, name) => setState((s) => ({ ...s, sections: s.sections.map((x) => (x.id === id ? { ...x, name } : x)) })),
     renameCards: (names) => setState((s) => ({ ...s, cards: s.cards.map((x) => (names[x.id] ? { ...x, name: names[x.id] } : x)) })),
-    reset: () => setState((m) => ({ ...m, ...defaultState() })),
+    reset: () => { saveSnapshot(store, 'قبل مسح الشهر'); setState((m) => ({ ...m, ...defaultState() })); },
     setSalary: (salary) => setState((m) => ({ ...m, salary })),
     renameMonth: (label) => setState((m) => ({ ...m, label })),
     switchMonth: (id) => setStore((st) => ({ ...st, activeId: id })),
-    newMonth: () => setStore((st) => {
+    // شهر جديد: الراتب مستقل، والرصيد المرحّل (فائض أو عجز) لقطة ثابتة لا تتغير تلقائياً
+    newMonth: ({ carry } = {}) => setStore((st) => {
       const tpl = st.months.find((m) => m.id === st.activeId) || st.months[st.months.length - 1];
       const latest = st.months.reduce((a, m) => (m.period > a ? m.period : a), tpl.period || '');
       const m = monthFromTemplate(tpl, nextPeriod(latest));
-      return { months: [...st.months, m], activeId: m.id };
+      if (carry) { m.carryIn = closingBalance(tpl); m.carryFromId = tpl.id; }
+      return { ...st, months: [...st.months, m], activeId: m.id };
     }),
-    deleteMonth: (id) => setStore((st) => {
-      const months = st.months.filter((m) => m.id !== id);
-      if (!months.length) return st;
-      return { months, activeId: st.activeId === id ? months[months.length - 1].id : st.activeId };
-    }),
+    setCarry: (carryIn, carryFromId) => setState((m) => ({ ...m, carryIn, carryFromId })),
+    deleteMonth: (id) => {
+      saveSnapshot(store, 'قبل حذف شهر');
+      setStore((st) => {
+        const months = st.months.filter((m) => m.id !== id);
+        if (!months.length) return st;
+        return { ...st, months, activeId: st.activeId === id ? months[months.length - 1].id : st.activeId };
+      });
+    },
+    saveDebt: (d) => setStore((st) => ({ ...st, debts: st.debts.some((x) => x.id === d.id) ? st.debts.map((x) => (x.id === d.id ? d : x)) : [...st.debts, d] })),
+    delDebt: (id) => setStore((st) => ({ ...st, debts: st.debts.filter((x) => x.id !== id) })),
+    saveGoal: (g) => setStore((st) => ({ ...st, goals: st.goals.some((x) => x.id === g.id) ? st.goals.map((x) => (x.id === g.id ? g : x)) : [...st.goals, g] })),
+    delGoal: (id) => setStore((st) => ({ ...st, goals: st.goals.filter((x) => x.id !== id) })),
+    importStore: (next) => setStore(next),
   };
   const openSheet = (catId = '') => setSheet({ catId });
 
@@ -206,15 +169,16 @@ export default function App() {
             <span className="block text-[10px] font-medium text-muted">تتبع مصاريف الراتب</span>
             <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="truncate">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
           </button>
-          <button onClick={() => setReport(true)} aria-label="تصدير / طباعة التقرير" className="flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 px-2 text-[10px] font-bold leading-none text-accent">
+          <button onClick={() => { setReportMode('month'); setReport(true); }} aria-label="تصدير / طباعة التقرير" className="flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 px-2 text-[10px] font-bold leading-none text-accent">
             <FileText size={16} />تصدير / طباعة
           </button>
         </div>
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} />}
-        {tab === 'stats' && <StatsTab data={data} />}
+        {tab === 'home' && <HomeTab data={data} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} />}
+        {tab === 'stats' && <StatsTab data={data} store={store} />}
+        {tab === 'tools' && <ToolsTab store={store} month={state} act={act} notify={setToast} view={toolView} setView={setToolView} openReport={(m) => { setReportMode(m); setReport(true); }} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
       </main>
 
@@ -225,7 +189,7 @@ export default function App() {
           onSave={(tx, name) => { act.addTx(tx); setSheet(null); setToast(`سُجّل ${fmtShort(tx.amount)} ر.ع على ${name}`); }} />
       )}
 
-      {report && <ReportModal data={data} onClose={() => setReport(false)} notify={setToast} />}
+      {report && <ReportModal data={data} store={store} mode={reportMode} onClose={() => { setReport(false); setReportMode('month'); }} notify={setToast} />}
       {salarySheet && (
         <SalarySheet value={state.salary} onClose={() => setSalarySheet(false)}
           onSave={(v) => { act.setSalary(v); setSalarySheet(false); setToast(`الراتب الآن ${fmtShort(v)} ر.ع`); }} />
@@ -256,13 +220,14 @@ function BottomNav({ tab, setTab, onAdd }) {
   };
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 backdrop-blur" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} aria-label="التنقل">
-      <div className="gutter mx-auto grid max-w-md grid-cols-[1fr_1fr_auto_1fr] items-center gap-1 py-2">
+      <div className="gutter mx-auto grid max-w-md grid-cols-[1fr_1fr_auto_1fr_1fr] items-center gap-0.5 py-2">
         <Tab id="home" label="الرئيسية" icon={House} />
-        <Tab id="stats" label="الرسومات" icon={ChartPie} />
-        <button onClick={onAdd} className="flex h-12 items-center gap-1.5 rounded-2xl bg-accent px-4 text-[15px] font-extrabold text-white active:scale-95 transition">
-          <Plus size={20} strokeWidth={2.8} />تسجيل مصروف
+        <Tab id="stats" label="التحليل" icon={ChartPie} />
+        <button onClick={onAdd} aria-label="تسجيل مصروف" className="flex h-12 items-center gap-1 rounded-2xl bg-accent px-3 text-[14px] font-extrabold text-white active:scale-95 transition">
+          <Plus size={19} strokeWidth={2.8} />تسجيل مصروف
         </button>
         <Tab id="log" label="السجل" icon={ReceiptText} />
+        <Tab id="tools" label="الأدوات" icon={LayoutGrid} />
       </div>
     </nav>
   );
@@ -271,7 +236,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, act, notify, openSheet, onEditSalary }) {
+function HomeTab({ data, alerts, act, notify, openSheet, onEditSalary }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
@@ -280,8 +245,9 @@ function HomeTab({ data, act, notify, openSheet, onEditSalary }) {
   const [manageCards, setManageCards] = useState(false);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
-  const over = round3(data.spent - data.salary);
-  const pct = data.salary > 0 ? Math.min(100, (data.spent / data.salary) * 100) : 100;
+  // العجز يُقاس على المتاح (الراتب + الرصيد المرحّل)
+  const over = round3(data.spent - data.available);
+  const pct = data.available > 0 ? Math.min(100, (data.spent / data.available) * 100) : 100;
   const sections = view === 'card' ? data.cardGroups : data.groups;
   const isOpen = (id) => (open[id] ?? DEFAULT_OPEN[id]) === true;
 
@@ -292,7 +258,7 @@ function HomeTab({ data, act, notify, openSheet, onEditSalary }) {
       <section className="rounded-3xl bg-gradient-to-bl from-hero to-hero2 p-5 text-white">
         {over > 0 && (
           <div className="mb-3 flex w-fit items-center gap-2 rounded-full bg-bad px-3 py-1.5 text-sm font-extrabold">
-            <TriangleAlert size={16} />عجز: تجاوزت الراتب بـ <span className="num">{fmtShort(over)}</span> ر.ع
+            <TriangleAlert size={16} />عجز: تجاوزت {data.carryIn ? 'المتاح' : 'الراتب'} بـ <span className="num">{fmtShort(over)}</span> ر.ع
           </div>
         )}
         <p className="text-[13px] text-white/70">المتبقي الفعلي من الراتب · {data.label.replace(/^راتب /, '')}</p>
@@ -316,7 +282,15 @@ function HomeTab({ data, act, notify, openSheet, onEditSalary }) {
             </div>
           ))}
         </dl>
+        {data.carryIn !== 0 && (
+          <p className="mt-3 rounded-xl bg-white/10 px-3 py-1.5 text-center text-xs">
+            رصيد مرحّل من الشهر السابق: <b className="num" dir="ltr">{data.carryIn > 0 ? '+' : '−'}{fmtShort(Math.abs(data.carryIn))}</b> ر.ع · المتاح <b className="num">{fmtShort(data.available)}</b>
+          </p>
+        )}
       </section>
+
+      <ForecastCard s={data.summary} />
+      <AlertsCard alerts={alerts} onOpenItem={(id) => openSheet(id)} />
 
       <div className="flex items-stretch gap-2">
         <div className="grid flex-1 grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="طريقة عرض البنود">
@@ -480,6 +454,10 @@ function ItemRow({ c, view, onOpen, onEdit }) {
             : <AccTag id={c.account} />}
           <div className="min-w-0 flex-1"><Bar spent={c.spent} budget={c.budget} h="h-1" /></div>
         </div>
+        <p className="num mt-1 text-[10px] text-muted">
+          مخطط <b className="text-ink">{fmtShort(c.budget)}</b> · مدفوع <b className="text-ink">{fmtShort(c.spent)}</b>{c.exec != null && <> · <b className={TONE[c.s].text}>{Math.round(c.exec * 100)}٪</b></>}
+          {c.dueDay ? <> · يستحق يوم {c.dueDay}</> : null}
+        </p>
       </div>
       <div className="w-[88px] shrink-0 text-left leading-tight">
         {deficit > 0 ? <DeficitBadge v={deficit} /> : c.s === 'done' ? (
@@ -487,7 +465,7 @@ function ItemRow({ c, view, onOpen, onEdit }) {
         ) : (
           <>
             <span className={`num block text-[15px] font-extrabold ${c.s === 'warn' ? 'text-warn' : c.s === 'idle' ? 'text-muted' : 'text-good'}`}>{fmtShort(c.remaining)}</span>
-            <span className="num block text-[10px] text-muted">متبقي من {fmtShort(c.budget)}</span>
+            <span className="block text-[10px] text-muted">المتبقي</span>
           </>
         )}
       </div>
@@ -533,7 +511,11 @@ function MonthSheet({ store, active, act, notify, onClose }) {
   const [label, setLabel] = useState(active.label);
   const [askNew, setAskNew] = useState(false);
   const [askDel, setAskDel] = useState(false);
+  const [carry, setCarry] = useState(false);
   useEffect(() => { setLabel(active.label); setAskDel(false); }, [active.id, active.label]);
+  const closing = closingBalance(active);
+  const source = active.carryFromId ? store.months.find((m) => m.id === active.carryFromId) : null;
+  const sourceNow = source ? closingBalance(source) : null;
   useModal(onClose);
   const months = [...store.months].sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : 0));
   const spentOf = (m) => round3(m.transactions.reduce((a, t) => a + t.amount, 0));
@@ -571,7 +553,7 @@ function MonthSheet({ store, active, act, notify, onClose }) {
                       <span className="block truncate font-bold">{m.label}</span>
                       <span className="block text-[11px] text-muted">الراتب <span className="num">{fmtShort(m.salary)}</span> · صُرف <span className="num">{fmtShort(sp)}</span> · <span className="num">{m.transactions.length}</span> عملية</span>
                     </span>
-                    <span className={`num text-sm font-extrabold ${m.salary - sp < 0 ? 'text-bad' : 'text-good'}`}>{fmtShort(round3(m.salary - sp))}</span>
+                    <span className={`num text-sm font-extrabold ${closingBalance(m) < 0 ? 'text-bad' : 'text-good'}`}>{fmtShort(closingBalance(m))}</span>
                   </button>
                 </li>
               );
@@ -579,12 +561,32 @@ function MonthSheet({ store, active, act, notify, onClose }) {
           </ul>
         </div>
 
+        {(active.carryIn !== 0 || source) && (
+          <div className="flex flex-col gap-1.5 rounded-2xl bg-surface2 p-3 text-[13px]">
+            <p className="font-bold">الرصيد المرحّل لهذا الشهر: <span className="num" dir="ltr">{active.carryIn >= 0 ? '+' : '−'}{fmtShort(Math.abs(active.carryIn))}</span> ر.ع</p>
+            <p className="text-xs text-muted">الراتب ({fmtShort(active.salary)}) مستقل عن الرصيد المرحّل. الرصيد ثُبّت عند بدء الشهر ولا يتغير تلقائياً.</p>
+            {source && sourceNow !== active.carryIn && (
+              <button onClick={() => { act.setCarry(sourceNow, source.id); notify('تم تحديث الرصيد المرحّل'); }} className="h-10 rounded-xl border border-accent/40 text-sm font-bold text-accent">
+                رصيد «{source.label}» أصبح {fmtShort(sourceNow)} — تحديث؟
+              </button>
+            )}
+            {active.carryIn !== 0 && <button onClick={() => { act.setCarry(0, null); notify('أُلغي الترحيل لهذا الشهر'); }} className="text-xs font-bold text-bad">إلغاء الترحيل لهذا الشهر</button>}
+          </div>
+        )}
+
         {askNew ? (
           <div className="flex flex-col gap-2 rounded-2xl border border-accent/30 bg-accent/5 p-3.5">
             <p className="text-sm font-bold">بدء شهر جديد؟</p>
             <p className="text-xs leading-relaxed text-muted">يُنسخ الراتب والفئات والبطاقات والبنود ومخصصاتها من «{active.label}»، ويبدأ المصروف والسجل من الصفر. يبقى الشهر الحالي محفوظاً ويمكنك فتحه أو طباعته في أي وقت.</p>
+            <label htmlFor="carry-toggle" className="flex items-start gap-2 rounded-xl bg-surface px-3 py-2.5 text-[13px]">
+              <input id="carry-toggle" type="checkbox" checked={carry} onChange={(e) => setCarry(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--accent))]" />
+              <span>
+                <b>ترحيل {closing >= 0 ? 'الفائض' : 'العجز'} ({fmtShort(Math.abs(closing))} ر.ع)</b>
+                <span className="block text-xs text-muted">يُضاف كرصيد مرحّل منفصل، ويبقى الراتب {fmtShort(active.salary)} كما هو.</span>
+              </span>
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => { act.newMonth(); notify('بدأ شهر جديد'); onClose(); }} className="h-11 rounded-xl bg-accent font-bold text-white">ابدأ الشهر</button>
+              <button onClick={() => { act.newMonth({ carry: carry && closing !== 0 }); notify('بدأ شهر جديد'); onClose(); }} className="h-11 rounded-xl bg-accent font-bold text-white">ابدأ الشهر</button>
               <button onClick={() => setAskNew(false)} className="h-11 rounded-xl bg-surface2 font-bold text-muted">إلغاء</button>
             </div>
           </div>
@@ -684,6 +686,8 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
   const [budget, setBudget] = useState(item ? String(item.budget) : '');
   const [group, setGroup] = useState(item?.group || defaults?.group || 'daily');
   const [account, setAccount] = useState(item?.account || defaults?.account || 'applepay');
+  const [dueDay, setDueDay] = useState(item?.dueDay ? String(item.dueDay) : '');
+  const [isSaving, setIsSaving] = useState(item ? (item.isSaving ?? item.id === 'saving') : false);
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState('');
   const { cards, sections } = useMeta();
@@ -693,7 +697,9 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
     const b = budget === '' ? 0 : parseFloat(budget);
     if (!name.trim()) return setErr('اكتب اسم البند.');
     if (isNaN(b) || b < 0) return setErr('أدخل مخصصاً صحيحاً (صفر أو أكثر).');
-    onSave({ name: name.trim(), budget: round3(b), group, account });
+    const day = dueDay === '' ? null : parseInt(dueDay, 10);
+    if (day != null && (isNaN(day) || day < 1 || day > 31)) return setErr('يوم الاستحقاق بين 1 و31.');
+    onSave({ name: name.trim(), budget: round3(b), group, account, dueDay: day, isSaving });
   };
   return (
     <Portal>
@@ -740,7 +746,18 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
             {sections.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </div>
-        {item && item.spent > 0 && <p className="text-xs text-muted">تغيير البطاقة ينقل مصروفات هذا البند المسجلة إلى البطاقة الجديدة.</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="i-due" className="text-sm font-bold text-muted">يوم الاستحقاق</label>
+            <input id="i-due" type="number" inputMode="numeric" min="1" max="31" value={dueDay} onChange={(e) => { setDueDay(e.target.value); setErr(''); }} className="input num" placeholder="اختياري" />
+          </div>
+          <label htmlFor="i-saving" className="flex items-center gap-2 self-end rounded-2xl border border-line px-3 py-3 text-sm font-bold">
+            <input id="i-saving" type="checkbox" checked={isSaving} onChange={(e) => setIsSaving(e.target.checked)} className="h-5 w-5 accent-[rgb(var(--accent))]" />
+            بند ادخار
+          </label>
+        </div>
+        <p className="-mt-1 text-xs text-muted">يوم الاستحقاق يفعّل تنبيه اقتراب موعد الدفع. وبنود الادخار تُحسب في تحليل الادخار السنوي.</p>
+        {item && item.spent > 0 && <p className="text-xs text-muted">العمليات المسجلة سابقاً تبقى في السجل على البطاقة التي دُفعت منها.</p>}
         {err && <p className="text-sm font-bold text-bad" role="alert">{err}</p>}
         <button type="submit" className="flex h-13 min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />{item ? 'حفظ التعديلات' : 'إضافة البند'}</button>
       </form>
@@ -750,16 +767,28 @@ function ItemSheet({ item, defaults, onSave, onDelete, onClose }) {
 }
 
 // ================= البيانات والرسومات =================
-function StatsTab({ data }) {
+function StatsTab({ data, store }) {
+  const [mode, setMode] = useState(() => { try { return sessionStorage.getItem('st5-stats') || 'month'; } catch (e) { return 'month'; } });
+  useEffect(() => { try { sessionStorage.setItem('st5-stats', mode); } catch (e) { /* تجاهل */ } }, [mode]);
   return (
     <div className="flex flex-col gap-4 fade-in">
       <div>
-        <h1 className="text-2xl font-extrabold">البيانات والرسومات</h1>
-        <p className="text-sm text-muted">إجمالي المصروف الفعلي <b className="num text-ink">{fmt(data.spent)}</b> ر.ع</p>
+        <h1 className="text-2xl font-extrabold">التحليل</h1>
+        <p className="text-sm text-muted">{mode === 'month' ? <>{data.label} · المدفوع <b className="num text-ink">{fmt(data.spent)}</b> ر.ع</> : <>آخر 12 شهراً حتى {data.label.replace(/^راتب شهر /, '')}</>}</p>
       </div>
-      <DonutCard data={data} />
-      <CompareCard data={data} />
-      <AccountsCard data={data} />
+      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="نطاق التحليل">
+        {[['month', 'هذا الشهر'], ['year', 'سنوي (12 شهراً)']].map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className={`h-10 rounded-xl text-[13px] font-bold transition ${mode === k ? 'bg-accent text-white' : 'text-muted'}`}>{l}</button>
+        ))}
+      </div>
+      {mode === 'month' ? (
+        <>
+          <PlanActualTable s={data.summary} sections={data.meta.sections} />
+          <DonutCard data={data} />
+          <CompareCard data={data} />
+          <AccountsCard data={data} />
+        </>
+      ) : <AnnualView store={store} endPeriod={data.period} />}
     </div>
   );
 }
@@ -1062,25 +1091,29 @@ function EntrySheet({ cats, initial, onSave, onClose }) {
   );
 }
 
-function useModal(onClose) {
-  useEffect(() => {
-    const k = (e) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = prev; };
-  }, [onClose]);
-}
 
 // ================= نافذة التقرير: طباعة ومشاركة =================
-function ReportModal({ data, onClose, notify }) {
+function ReportModal({ data, store, mode: initialMode, onClose, notify }) {
   useModal(onClose);
+  const [mode, setMode] = useState(initialMode || 'month');
   const [fallback, setFallback] = useState('');
-  const text = useMemo(() => reportText(data), [data]);
+  const text = useMemo(() => (mode === 'year' ? annualText(store, data.period) : reportText(data)), [data, store, mode]);
 
   const articleRef = useRef(null);
   const [pdf, setPdf] = useState({ state: 'idle' }); // idle | busy | ready | error
-  const fileName = `salary-report-${data.period || todayISO().slice(0, 7)}.pdf`;
+  const [xl, setXl] = useState(false);
+  useEffect(() => { setPdf({ state: 'idle' }); setFallback(''); }, [mode]);
+  const base = mode === 'year' ? `salary-year-${data.period}` : `salary-report-${data.period || todayISO().slice(0, 7)}`;
+  const fileName = `${base}.pdf`;
+  const doExcel = async () => {
+    setXl(true);
+    try {
+      const month = store.months.find((m) => m.id === store.activeId);
+      const blob = mode === 'year' ? annualWorkbook(store, data.period) : monthWorkbook(month, data.meta.cardName, data.meta.sectionName, todayISO());
+      const r = await shareOrDownload(blob, `${base}.xlsx`, data.label);
+      if (r === 'downloaded') notify('تم تنزيل ملف Excel');
+    } catch (e) { notify('تعذّر إنشاء ملف Excel'); } finally { setXl(false); }
+  };
 
   const doPrint = () => {
     try { window.print(); } catch (e) { /* بعض العارضات تمنع الطباعة */ }
@@ -1150,6 +1183,11 @@ function ReportModal({ data, onClose, notify }) {
             <h2 className="text-lg font-extrabold">تصدير / مشاركة التقرير</h2>
             <button onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
           </div>
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-surface2 p-1" role="tablist" aria-label="نوع التقرير">
+            {[['month', 'تقرير شهري'], ['year', 'تقرير سنوي']].map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className={`h-9 rounded-lg text-[13px] font-bold ${mode === k ? 'bg-surface text-accent shadow-sm' : 'text-muted'}`}>{l}</button>
+            ))}
+          </div>
           <button onClick={doPdf} disabled={pdf.state === 'busy'} aria-busy={pdf.state === 'busy'}
             className="flex h-13 min-h-[52px] items-center justify-center gap-2 rounded-xl bg-accent text-base font-extrabold text-white disabled:opacity-80">
             {pdf.state === 'busy' ? <><LoaderCircle size={20} className="animate-spin" />جارٍ إنشاء ملف PDF…</>
@@ -1162,8 +1200,9 @@ function ReportModal({ data, onClose, notify }) {
             </a>
           )}
           {pdf.state === 'error' && <p className="text-xs font-bold text-bad">تعذّر إنشاء الملف. جرّب المشاركة النصية أو الطباعة.</p>}
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={doShare} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 text-[13px] font-extrabold text-accent"><Share2 size={16} />نسخ / مشاركة نصياً</button>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={doExcel} disabled={xl} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-good/30 bg-good/10 text-[13px] font-extrabold text-good disabled:opacity-60">{xl ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />}Excel</button>
+            <button onClick={doShare} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 text-[13px] font-extrabold text-accent"><Share2 size={16} />نص</button>
             <button onClick={doPrint} className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-line text-[13px] font-extrabold text-muted"><Printer size={16} />طباعة</button>
           </div>
           {fallback && (
@@ -1175,62 +1214,7 @@ function ReportModal({ data, onClose, notify }) {
         </div>
 
         <article ref={articleRef} className="gutter flex-1 overflow-y-auto py-4" style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))' }}>
-          <header className="flex items-end justify-between border-b-2 border-hero pb-2">
-            <div>
-              <p className="text-xs font-bold text-muted">تقرير مصاريف الراتب</p>
-              <h1 id="report-title" className="text-xl font-extrabold">{data.label}</h1>
-            </div>
-            <div className="text-left">
-              <p className="text-xs font-bold">الراتب <span className="num">{fmt(data.salary)}</span> ر.ع</p>
-              <span className="text-[11px] text-muted">{dateLabel(todayISO())}</span>
-            </div>
-          </header>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {[['الراتب', data.salary], ['الموزع', data.allocated], ['المصروف الفعلي', data.spent], ['المتبقي الفعلي', data.remaining]].map(([k, v], i) => (
-              <div key={k} className={`rounded-xl border border-line px-3 py-2 ${i === 3 ? 'bg-good/5' : ''}`}>
-                <p className="text-[11px] text-muted">{k}</p>
-                <p className={`num text-lg font-extrabold ${i === 3 && v < 0 ? 'text-bad' : ''}`}>{fmt(v)} <span className="text-[10px] text-muted">ر.ع</span></p>
-              </div>
-            ))}
-          </div>
-          {data.spent > data.salary && <p className="mt-2 rounded-xl bg-bad/10 px-3 py-2 text-sm font-bold text-bad">عجز: تجاوز المصروف الراتب بـ <span className="num">{fmtShort(data.spent - data.salary)}</span> ر.ع</p>}
-
-          <h2 className="mt-5 mb-2 text-sm font-extrabold">البنود والعجز</h2>
-          <div className="overflow-x-auto">
-            <table className="rtable">
-              <thead><tr><th>البند</th><th>البطاقة</th><th>المخصص</th><th>المصروف</th><th>المتبقي</th></tr></thead>
-              {data.groups.map((g) => (
-                <tbody key={g.id}>
-                  <tr className="group-row"><td colSpan={2}>{g.label}</td><td className="num">{fmtShort(g.budget)}</td><td className="num">{fmtShort(g.spent)}</td><td className={`num ${g.deficit > 0 ? 'text-bad' : ''}`}>{g.deficit > 0 ? `عجز ${fmtShort(g.deficit)}` : fmtShort(g.remaining)}</td></tr>
-                  {g.list.map((c) => (
-                    <tr key={c.id}>
-                      <td>{c.name}</td><td className="whitespace-nowrap text-muted">{data.meta.cardName(c.account)}</td>
-                      <td className="num">{fmtShort(c.budget)}</td><td className="num">{fmtShort(c.spent)}</td>
-                      <td className={`num whitespace-nowrap font-bold ${c.remaining < 0 ? 'text-bad' : 'text-good'}`}>{c.remaining < 0 ? `عجز ${fmtShort(-c.remaining)}` : fmtShort(c.remaining)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-              {data.orphan > 0 && (
-                <tbody><tr className="group-row"><td colSpan={3}>مصروفات بنود محذوفة</td><td className="num">{fmtShort(data.orphan)}</td><td /></tr></tbody>
-              )}
-            </table>
-          </div>
-
-          <h2 className="mt-5 mb-2 text-sm font-extrabold">العمليات المسجلة (<span className="num">{data.history.length}</span>)</h2>
-          <div className="overflow-x-auto">
-            <table className="rtable">
-              <thead><tr><th>التاريخ</th><th>البند</th><th>ملاحظة</th><th>المبلغ</th></tr></thead>
-              <tbody>
-                {data.history.map((t) => (
-                  <tr key={t.id}><td className="num whitespace-nowrap">{dateLabel(t.date)}</td><td>{data.catMap[t.catId]?.name || 'بند محذوف'}</td><td className="text-muted">{t.note}</td><td className="num font-bold">{fmt(t.amount)}</td></tr>
-                ))}
-                {data.history.length === 0 && <tr><td colSpan={4} className="text-center text-muted">لا توجد عمليات</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-4 text-center text-[10px] text-muted">جميع المبالغ بالريال العماني</p>
+          {mode === 'year' ? <AnnualReport store={store} endPeriod={data.period} title={`حتى ${data.label.replace(/^راتب شهر /, '')}`} /> : <MonthReport data={data} />}
         </article>
       </div>
     </div>

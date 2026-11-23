@@ -84,6 +84,8 @@ export const nextPeriod = (p) => { const [y, m] = p.split('-').map(Number); cons
 export const monthLabelFor = (p) => { const [y, m] = p.split('-').map(Number); return `راتب شهر ${monthNameFmt.format(new Date(y, m - 1, 1))}`; };
 
 const newMonth = (period, base) => ({
+  carryIn: 0,
+  carryFromId: null,
   id: `m${uid()}`,
   period,
   label: monthLabelFor(period),
@@ -101,14 +103,31 @@ export const monthFromTemplate = (tpl, period) => ({
   transactions: [],
 });
 
-// تحميل البيانات: الصيغة الجديدة، أو ترحيل بيانات الإصدار السابق إلى الشهر الحالي
+export const SCHEMA_VERSION = 5;
+export const SNAPSHOT_KEY = 'salary-tracker-omr-snapshots';
+
+// تطبيع البيانات: يضيف الحقول الناقصة بقيم افتراضية فقط، ولا يغيّر أي مبلغ أو عملية مسجلة
+export function normalizeStore(st) {
+  const months = st.months.map((m) => ({
+    ...migrate(m),
+    salary: typeof m.salary === 'number' ? m.salary : SALARY,
+    carryIn: Number.isFinite(m.carryIn) ? m.carryIn : 0,
+    carryFromId: m.carryFromId || null,
+  }));
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    months,
+    activeId: months.some((m) => m.id === st.activeId) ? st.activeId : months[months.length - 1].id,
+    debts: Array.isArray(st.debts) ? st.debts : [],
+    goals: Array.isArray(st.goals) ? st.goals : [],
+  };
+}
+
+// تحميل البيانات: الصيغة الحالية، أو ترحيل بيانات الإصدار الأقدم إلى الشهر الحالي
 export function loadStore() {
   try {
     const st = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (st && Array.isArray(st.months) && st.months.length) {
-      const months = st.months.map((m) => ({ ...migrate(m), salary: typeof m.salary === 'number' ? m.salary : SALARY }));
-      return { months, activeId: months.some((m) => m.id === st.activeId) ? st.activeId : months[months.length - 1].id };
-    }
+    if (st && Array.isArray(st.months) && st.months.length) return normalizeStore(st);
   } catch (e) { /* ننتقل للترحيل */ }
   let base = null;
   try {
@@ -116,5 +135,18 @@ export function loadStore() {
     if (old && Array.isArray(old.categories) && Array.isArray(old.transactions)) base = migrate(old);
   } catch (e) { /* لا توجد بيانات سابقة */ }
   const m = newMonth(periodNow(), base ? { sections: base.sections, cards: base.cards, categories: base.categories, transactions: base.transactions } : null);
-  return { months: [m], activeId: m.id };
+  return normalizeStore({ months: [m], activeId: m.id });
+}
+
+// لقطات تلقائية قبل العمليات الخطرة (مسح، حذف شهر، استيراد) — آخر 5 فقط
+export function saveSnapshot(store, reason) {
+  try {
+    const list = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '[]');
+    list.unshift({ at: new Date().toISOString(), reason, store });
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(list.slice(0, 5)));
+    return true;
+  } catch (e) { return false; }
+}
+export function listSnapshots() {
+  try { const l = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; }
 }
