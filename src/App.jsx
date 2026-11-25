@@ -16,7 +16,7 @@ import {
 } from './ui.jsx';
 import { surfaceFor, accentFor, themeVars, summaryVars } from './colors.js';
 import { HeaderCountdown, useMuscatToday } from './countdownView.jsx';
-import { useNotifications, NotificationBell, NotificationCurtain } from './notifyView.jsx';
+import { useNotifications, NotificationBell, NotificationCurtain, CriticalBanners } from './notifyView.jsx';
 import { sortItems, itemState, SORT_MODES, DEFAULT_SORT } from './sorting.js';
 import { monthSummary, monthAlerts, closingBalance, remainingInfo, toBaisa, sumOMR, pctLabel, spendWarning } from './finance.js';
 import { PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
@@ -132,6 +132,20 @@ export default function App() {
     if (notifOpen) { setNotifOpen(false); return; }
     setNotifOpen(true); notif.readAll(); // الفتح يعيد الجرس للأبيض فوراً
   };
+  // «عرض البند»: الانتقال إلى البند المتأثر في الشهر المالي الذي سُجلت فيه العمليات
+  const [focus, setFocus] = useState(null);
+  const showItem = (c) => {
+    setNotifOpen(false); setTab('home');
+    if (c.monthId && c.monthId !== store.activeId && store.months.some((m) => m.id === c.monthId)) act.switchMonth(c.monthId);
+    setFocus({ id: c.itemId, n: Date.now() });
+  };
+  // مؤشر التحذير على البند: للحالات القائمة الآن، في الشهر المالي المعني أو الشهر التقويمي الجاري
+  const curPeriod = `${muscatToday.y}-${String(muscatToday.m).padStart(2, '0')}`;
+  const critByItem = useMemo(() => {
+    const o = {};
+    for (const c of notif.crit) if (c.monthId === state.id || state.period === curPeriod) (o[c.itemId] = o[c.itemId] || []).push(c);
+    return o;
+  }, [notif.crit, state.id, state.period, curPeriod]);
   const [reportMode, setReportMode] = useState('month');
 
   const act = {
@@ -191,7 +205,7 @@ export default function App() {
             <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="min-w-0 break-words">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
           </button>
           <HeaderCountdown payDay={store.settings.payDay} today={muscatToday} />
-          <NotificationBell unread={notif.unread} open={notifOpen} onToggle={toggleNotif} />
+          <NotificationBell unread={notif.unread} critical={notif.critical} open={notifOpen} onToggle={toggleNotif} />
           <button onClick={() => { setReportMode('month'); setReport(true); }} aria-label="تصدير / طباعة التقرير" className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 text-[8.5px] font-bold leading-[1.05] text-accent">
             <FileText size={15} /><span className="text-center">تصدير<br />طباعة</span>
           </button>
@@ -199,7 +213,8 @@ export default function App() {
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} store={store} month={state} act={act} notify={setToast} openSheet={openSheet} />}
+        {tab === 'home' && <CriticalBanners items={notif.banners} onShow={showItem} onHide={notif.hide} />}
+        {tab === 'home' && <HomeTab data={data} store={store} month={state} act={act} notify={setToast} openSheet={openSheet} critByItem={critByItem} focus={focus} />}
         {tab === 'stats' && <StatsTab data={data} store={store} />}
         {tab === 'tools' && <ToolsTab store={store} month={state} act={act} notify={setToast} view={toolView} setView={setToolView} openReport={(m) => { setReportMode(m); setReport(true); }} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
@@ -212,7 +227,7 @@ export default function App() {
           onSave={(tx, name) => { act.addTx(tx); setSheet(null); setToast(`سُجّل ${fmtShort(tx.amount)} ر.ع على ${name}`); }} />
       )}
 
-      {notifOpen && <NotificationCurtain notif={notif} headerRef={headerRef} onClose={() => setNotifOpen(false)} />}
+      {notifOpen && <NotificationCurtain notif={notif} headerRef={headerRef} onClose={() => setNotifOpen(false)} onShowItem={showItem} />}
       {report && <ReportModal data={data} store={store} mode={reportMode} onClose={() => { setReport(false); setReportMode('month'); }} notify={setToast} />}
       {monthSheet && (
         <MonthSheet store={store} active={state} onClose={() => setMonthSheet(false)} act={act} notify={setToast} />
@@ -256,7 +271,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, store, month, act, notify, openSheet }) {
+function HomeTab({ data, store, month, act, notify, openSheet, critByItem = {}, focus = null }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
@@ -285,6 +300,19 @@ function HomeTab({ data, store, month, act, notify, openSheet }) {
     notify(r.archived ? `«${c.name}» له عمليات مسجلة، فنُقل إلى الأرشيف بدل حذفه` : `تم حذف بند ${c.name}`);
   };
   const paysOf = (id) => month.transactions.filter((t) => t.catId === id).length;
+  // الانتقال إلى بند محدد (من التحذير الحرج): فتح فئته ثم تمريره إلى منتصف الشاشة وإبرازه مؤقتاً
+  const [spot, setSpot] = useState(null);
+  useEffect(() => {
+    if (!focus) return undefined;
+    const c = data.cats.find((x) => x.id === focus.id);
+    if (!c) { notify('البند غير موجود في هذا الشهر'); return undefined; }
+    const gid = view === 'card' ? c.account : c.group;
+    setOpen((o) => ({ ...o, [gid]: true }));
+    setSpot(focus.id);
+    const r = requestAnimationFrame(() => document.getElementById(`item-${focus.id}`)?.scrollIntoView({ block: 'center' }));
+    const t = setTimeout(() => setSpot(null), 4000);
+    return () => { cancelAnimationFrame(r); clearTimeout(t); };
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-col gap-4 fade-in">
@@ -355,7 +383,7 @@ function HomeTab({ data, store, month, act, notify, openSheet }) {
 
       {sections.map((g) => (
         <GroupBlock key={g.id} g={g} view={view} open={isOpen(g.id)} toggle={() => setOpen((o) => ({ ...o, [g.id]: !isOpen(g.id) }))}
-          openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem}
+          openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem} critByItem={critByItem} spot={spot}
           onEdit={(c) => setEditor({ item: c })}
           onRename={() => setRename({ kind: view === 'card' ? 'card' : 'section', id: g.id, name: g.label })}
           sortMode={view === 'card' ? 'manual' : (store.settings.sortModes[g.id] || DEFAULT_SORT)}
@@ -403,7 +431,7 @@ function HomeTab({ data, store, month, act, notify, openSheet }) {
   );
 }
 
-function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename, onColor, sortMode = 'manual', onSortMode }) {
+function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename, onColor, sortMode = 'manual', onSortMode, critByItem = {}, spot = null }) {
   const dark = useIsDark();
   const sec = view === 'card' ? null : g.section;
   const surf = sec ? surfaceFor(sec.color, dark) : null;
@@ -457,7 +485,7 @@ function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRem
                       {label && <li className="px-4 py-1" aria-hidden="true"><span className={`inline-block rounded-md bg-surface px-2 py-0.5 text-[11px] font-extrabold ${st === 'over' ? 'text-bad' : 'text-muted'}`} style={themeVars(dark)}>{label}</span></li>}
                       <SwipeRow id={c.id} swiped={swiped} setSwiped={setSwiped} onDelete={() => onRemove(c)} archive={c.paid > 0}
                         surface={surfaceFor(c.color, dark) || (surf ? { bg: 'rgb(var(--surface))', vars: {}, reset: true } : null)} dark={dark}>
-                        <ItemRow c={c} view={view} dark={dark} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} onColor={onColor ? () => onColor(c) : null} />
+                        <ItemRow c={c} view={view} dark={dark} crit={critByItem[c.id]} spot={spot === c.id} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} onColor={onColor ? () => onColor(c) : null} />
                       </SwipeRow>
                     </React.Fragment>
                   );
@@ -534,15 +562,15 @@ function SwipeRow({ id, swiped, setSwiped, onDelete, archive, surface, dark, chi
   );
 }
 
-function ItemRow({ c, view, dark, onOpen, onEdit, onColor }) {
+function ItemRow({ c, view, dark, crit, spot, onOpen, onEdit, onColor }) {
   const Icon = ITEM_ICONS[c.id] || Tag;
   const groupShort = useMeta().sectionName(c.group);
   const acc = accentFor(c.accent, dark);
   const rem = c.rem;
   return (
-    <div role="button" tabIndex={0} aria-label={`تسجيل مصروف على ${c.name}`}
+    <div role="button" tabIndex={0} aria-label={`تسجيل مصروف على ${c.name}`} id={`item-${c.id}`} data-critical={crit ? 'true' : undefined}
       onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
-      className="flex cursor-pointer select-none flex-col gap-2 px-4 py-3 transition active:opacity-80">
+      className={`flex cursor-pointer select-none flex-col gap-2 px-4 py-3 transition active:opacity-80 ${crit ? 'border-s-4 border-[#B42318]' : ''} ${spot ? 'ring-2 ring-inset ring-[#B42318]' : ''}`}>
       <div className="flex items-center gap-2.5">
         <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${acc ? '' : TONE[c.s].soft}`} style={acc ? { background: acc.bg, color: acc.ink } : undefined}><Icon size={17} /></div>
         <div className="min-w-0 flex-1">
@@ -552,6 +580,9 @@ function ItemRow({ c, view, dark, onOpen, onEdit, onColor }) {
               ? <span className="whitespace-nowrap rounded-md bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted">{groupShort}</span>
               : <AccTag id={c.account} />}
             {c.dueDay ? <span className="text-[10px] text-muted">يستحق يوم {c.dueDay}</span> : null}
+            {crit && crit.map((k) => (
+              <span key={k.key} className="crit-badge num rounded-md bg-[#B42318] px-1.5 py-0.5 text-[10px] font-extrabold text-white">⚠ حرج: تجاوز {k.kind === 'food' ? 'الحد اليومي' : 'الحد الأسبوعي'} <span dir="ltr" className="inline-block">+{k.excess.toFixed(3)}</span></span>
+            ))}
             {itemState(c.planned, c.paid) === 'over'
               ? <span className="rounded-md bg-bad px-1.5 py-0.5 text-[10px] font-extrabold text-white">⚠ تجاوز الميزانية</span>
               : c.planned > 0 && itemState(c.planned, c.paid) === 'done'

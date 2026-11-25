@@ -24,7 +24,7 @@ const cats = [
 let n = 0;
 const tx = (catId, amount, date = '2026-11-02') => ({ id: `t${n++}`, catId, amount, date, note: '', account: 'applepay', created: n });
 const mk = (id, period, txs, extra = {}) => ({ id, period, label: `راتب شهر ${period}`, salary: 760, carryIn: 0, carryFromId: null, incomes: [], sections, cards, categories: cats, transactions: txs, ...extra });
-const storeWith = (txs, extra = {}) => ({ schemaVersion: 6, debts: [], goals: [], activeId: 'cur', settings: { cardColors: { salary: '#245B91', balance: null }, payDay: 23, spendLimit: 650, sortModes: {} },
+const storeWith = (txs, extra = {}) => ({ schemaVersion: 6, debts: [], goals: [], activeId: 'cur', settings: { cardColors: { salary: '#245B91', balance: null }, payDay: 23, spendLimit: 650, sortModes: {}, critical: { foodOn: false, fuelOn: false } }, // تنبيهات V3.4 الحرجة تُختبر في e2e-v34
   months: [mk('prev', '2026-10', [tx('rent', 300, '2026-10-01'), tx('food', 600, '2026-10-02')]), mk('cur', '2026-11', txs)], ...extra });
 
 const b = await chromium.launch();
@@ -60,7 +60,7 @@ check('بطاقة الرصيد والمصروف الفعلي والبنود وا
 check('الحسابات كما هي (760 − 450 = 310)', (await p.locator('.balance-card').innerText()).replace(/,/g, '').includes('310.00'));
 await nav(p, 'الأدوات');
 const toolTitles = await p.locator('main button span.block.font-bold').allInnerTexts();
-check('أقسام الأدوات بالترتيب المطلوب', ['إدارة الراتب والدخل', 'إدارة الادخار', 'تحليل سلوك الإنفاق', 'محاكي التوفير', 'إعدادات الراتب والمظهر'].every((t, k) => toolTitles[k] && toolTitles[k].includes(t)), toolTitles.join(' | '));
+check('أقسام الأدوات بالترتيب المطلوب', ['إدارة الراتب والدخل', 'إدارة الادخار', 'تحليل سلوك الإنفاق', 'محاكي التوفير', 'حدود الإنفاق والتنبيهات الحرجة', 'إعدادات الراتب والمظهر'].every((t, k) => toolTitles[k] && toolTitles[k].includes(t)), toolTitles.join(' | '));
 check('عنوان المجموعة الخامسة', await p.getByRole('heading', { name: /الإعدادات والأدوات الحالية/ }).isVisible());
 check('الأقسام المتقدمة غير مركّبة حتى تُفتح', (await p.locator('.savings-card').count()) === 0 && !(await p.locator('main').innerText()).includes('لوحة التحليل'));
 await tool(p, /إدارة الراتب والدخل/);

@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   TrendingUp, TrendingDown, BellRing, CircleAlert, CalendarClock, HandCoins, Target, FlaskConical, DatabaseBackup,
   FileSpreadsheet, FileText, ChevronLeft, ArrowRight, Plus, Pencil, Trash2, Download, Upload, Check, RotateCcw,
-  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2, Wallet, PiggyBank, Calculator,
+  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2, Wallet, PiggyBank, Calculator, Siren,
 } from 'lucide-react';
 import { fmt, fmtShort, dateLabel, todayISO, uid, listSnapshots, saveSnapshot } from './data.js';
 import {
@@ -15,6 +15,7 @@ import { Card, Money, Sheet, Field, PrimaryButton, Progress, pctText, useMeta, T
 import { SpendingBehavior, SimulatorTool } from './insightsView.jsx';
 import { SavingsManager } from './savingsView.jsx';
 import { SalaryIncomeManager } from './incomeView.jsx';
+import { CriticalSettings, CriticalInsights } from './criticalView.jsx';
 
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmtShort(Math.abs(v))}`;
 const monthName = (label) => label.replace(/^راتب شهر /, '');
@@ -216,6 +217,7 @@ const TOOL_GROUPS = [
   { title: 'إدارة الادخار', tools: [{ id: 'savings', title: 'إدارة الادخار', sub: 'بطاقة الادخار: المخصص والفعلي والمتبقي', icon: PiggyBank }] },
   { title: 'تحليل سلوك الإنفاق', tools: [{ id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb }] },
   { title: 'محاكي التوفير', tools: [{ id: 'simulator', title: 'محاكي التوفير', sub: 'أثر خفض المصروفات المرنة بنسبة أو مبلغ', icon: Calculator }] },
+  { title: 'حدود الإنفاق والتنبيهات الحرجة', tools: [{ id: 'critical', title: 'حدود الإنفاق والتنبيهات الحرجة', sub: 'حد الأكل اليومي (3٪) والبنزين الأسبوعي (15 ر.ع)', icon: Siren }] },
   { title: 'الإعدادات والأدوات الحالية', tools: [
     { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب، حد التنبيه للمصروف، وألوان البطاقات', icon: Settings2 },
     { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
@@ -264,7 +266,8 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
       {view === 'savings' && <SavingsManager month={month} store={store} act={act} notify={notify} />}
       {view === 'simulator' && <SimulatorTool store={store} act={act} notify={notify} />}
       {view === 'settings' && <SalarySettings store={store} act={act} notify={notify} />}
-      {view === 'behavior' && <SpendingBehavior store={store} act={act} notify={notify} />}
+      {view === 'behavior' && <><SpendingBehavior store={store} act={act} notify={notify} /><CriticalInsights store={store} /></>}
+      {view === 'critical' && <CriticalSettings store={store} month={month} act={act} notify={notify} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
       {view === 'goals' && <Goals store={store} month={month} act={act} notify={notify} />}
       {view === 'scenario' && <Scenario month={month} />}

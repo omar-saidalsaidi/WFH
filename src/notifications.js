@@ -12,7 +12,7 @@ export const NOTIF_KEY = 'salary-tracker-omr-notifications';
 export const MAX_ITEMS = 60;
 export const SALARY_SOON_DAYS = 3;
 
-export const emptyNotifState = () => ({ v: 1, items: [], active: {}, seq: 0 });
+export const emptyNotifState = () => ({ v: 1, items: [], active: {}, seq: 0, peak: {}, hidden: {} });
 
 export function normalizeNotifState(x) {
   if (!x || typeof x !== 'object' || !Array.isArray(x.items)) return emptyNotifState();
@@ -21,6 +21,8 @@ export function normalizeNotifState(x) {
     items: x.items.filter((i) => i && typeof i.id === 'string' && typeof i.key === 'string').slice(0, MAX_ITEMS),
     active: x.active && typeof x.active === 'object' ? { ...x.active } : {},
     seq: Number.isInteger(x.seq) && x.seq >= 0 ? x.seq : 0,
+    peak: x.peak && typeof x.peak === 'object' ? { ...x.peak } : {},
+    hidden: x.hidden && typeof x.hidden === 'object' ? { ...x.hidden } : {},
   };
 }
 
@@ -62,27 +64,58 @@ export function computeConditions(store, today) {
 }
 
 // مزامنة السجل مع الحالات الحالية. يعيد الحالة نفسها (نفس المرجع) إذا لم يتغير شيء.
+// الحالات الحرجة تحمل escalate (مقدار التجاوز بالبيسة): إذا زاد التجاوز بعد التنبيه يُنشأ تنبيه جديد بالمقدار الجديد
+// (أو يُحدَّث التنبيه السابق إن لم يُقرأ بعد، فلا يتكرر)؛ ونقص التجاوز لا يُنشئ شيئاً.
+const toItem = (c, id, nowIso) => {
+  const it = { id, key: c.key, kind: c.kind, level: c.level, title: c.title, desc: c.desc, at: nowIso, read: false };
+  if (c.level === 'critical') Object.assign(it, { advice: c.advice, itemId: c.itemId, monthId: c.monthId, excess: c.excess });
+  return it;
+};
 export function syncNotifications(state, conditions, nowIso) {
   const live = new Set(conditions.map((c) => c.key));
   let changed = false;
   const active = { ...state.active };
+  const peak = { ...(state.peak || {}) };
+  const hidden = { ...(state.hidden || {}) };
   let seq = state.seq;
+  let items = state.items;
   const added = [];
   for (const c of conditions) {
-    if (active[c.key]) continue; // قائمة مسبقاً: لا تكرار
+    if (active[c.key]) {
+      if (c.escalate == null) continue; // قائمة مسبقاً: لا تكرار
+      if (peak[c.key] == null) { peak[c.key] = c.escalate; changed = true; continue; }
+      if (c.escalate <= peak[c.key]) continue;
+      peak[c.key] = c.escalate; changed = true;
+      const prev = items.find((i) => i.key === c.key && !i.read);
+      if (prev) { items = items.filter((i) => i !== prev); added.push({ ...toItem(c, prev.id, nowIso) }); continue; }
+      seq += 1; active[c.key] = seq;
+      added.push(toItem(c, `${c.key}#${seq}`, nowIso));
+      continue;
+    }
     seq += 1;
     active[c.key] = seq;
-    added.push({ id: `${c.key}#${seq}`, key: c.key, kind: c.kind, level: c.level, title: c.title, desc: c.desc, at: nowIso, read: false });
+    if (c.escalate != null) peak[c.key] = c.escalate;
+    added.push(toItem(c, `${c.key}#${seq}`, nowIso));
     changed = true;
   }
   for (const k of Object.keys(active)) {
-    if (!live.has(k)) { delete active[k]; changed = true; } // زالت الحالة: يمكن أن تُنشئ تنبيهاً جديداً إذا عادت
+    if (!live.has(k)) { delete active[k]; delete peak[k]; delete hidden[k]; changed = true; } // زالت الحالة: يمكن أن تُنشئ تنبيهاً جديداً إذا عادت
   }
   if (!changed) return state;
   // الأحدث أولاً، والسجل محدود الحجم (يُحذف الأقدم أولاً)
-  const items = [...added.reverse(), ...state.items].slice(0, MAX_ITEMS);
-  return { ...state, items, active, seq };
+  items = [...added.reverse(), ...items].slice(0, MAX_ITEMS);
+  return { ...state, items, active, seq, peak, hidden };
 }
+
+// ترتيب العرض: التنبيهات الحرجة القائمة أولاً، ثم الباقي (الأحدث أولاً في كل مجموعة)
+export const displayOrder = (state) => {
+  const top = (i) => (i.level === 'critical' && state.active[i.key] ? 0 : 1);
+  return [...state.items].sort((a, b) => top(a) - top(b));
+};
+export const unreadCritical = (state) => state.items.some((i) => !i.read && i.level === 'critical');
+// إخفاء شريط التحذير لحالة قائمة؛ يظهر من جديد إذا زاد التجاوز أو عادت الحالة بعد زوالها
+export const hideBanner = (state, key) => (state.active[key] ? { ...state, hidden: { ...state.hidden, [key]: (state.peak || {})[key] ?? 0 } } : state);
+export const bannerHidden = (state, c) => state.hidden?.[c.key] != null && state.hidden[c.key] >= (c.escalate ?? 0);
 
 export const unreadCount = (state) => state.items.reduce((a, i) => a + (i.read ? 0 : 1), 0);
 export const markAllRead = (state) => (unreadCount(state) ? { ...state, items: state.items.map((i) => (i.read ? i : { ...i, read: true })) } : state);

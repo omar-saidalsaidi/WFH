@@ -1,3 +1,4 @@
+import { normalizeCritical } from './critical.js';
 // البنود الافتراضية ومساعدات الأرقام والتاريخ
 
 export const SALARY = 760;
@@ -144,6 +145,7 @@ export function normalizeSettings(x) {
     payDay: Number.isInteger(day) && day >= 1 && day <= 31 ? day : 23,
     spendLimit: Number.isFinite(lim) && lim > 0 ? Math.round(lim * 1000) / 1000 : 650,
     sortModes: s.sortModes && typeof s.sortModes === 'object' ? { ...s.sortModes } : {},
+    critical: normalizeCritical(s.critical),
   };
 }
 
