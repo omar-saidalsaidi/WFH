@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   TrendingUp, TrendingDown, BellRing, CircleAlert, CalendarClock, HandCoins, Target, FlaskConical, DatabaseBackup,
   FileSpreadsheet, FileText, ChevronLeft, ArrowRight, Plus, Pencil, Trash2, Download, Upload, Check, RotateCcw,
-  ShieldCheck, Copy, LoaderCircle, Lightbulb,
+  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2,
 } from 'lucide-react';
 import { fmt, fmtShort, dateLabel, todayISO, uid, listSnapshots, saveSnapshot } from './data.js';
 import {
@@ -209,6 +209,7 @@ function Stat({ k, v, sub, tone, signed: sg }) {
 
 // ================= تبويب الأدوات =================
 const TOOLS = [
+  { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب وألوان البطاقتين الرئيسيتين', icon: Settings2 },
   { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb },
   { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
   { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
@@ -245,6 +246,7 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
         <button onClick={() => setView(null)} aria-label="رجوع للأدوات" className="grid h-10 w-10 place-items-center rounded-xl bg-surface2"><ArrowRight size={19} /></button>
         <h1 className="text-xl font-extrabold">{tool.title}</h1>
       </div>
+      {view === 'settings' && <SalarySettings store={store} act={act} notify={notify} />}
       {view === 'behavior' && <SpendingBehavior store={store} act={act} notify={notify} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
       {view === 'goals' && <Goals store={store} month={month} act={act} notify={notify} />}
@@ -688,3 +690,40 @@ function Backup({ store, act, notify }) {
 }
 
 export { periodOf, addMonths };
+
+// إعدادات عامة تسري على كل الأشهر
+function SalarySettings({ store, act, notify }) {
+  const st = store.settings;
+  const [day, setDay] = useState(String(st.payDay));
+  const [err, setErr] = useState('');
+  const save = () => {
+    const n = Number(day);
+    if (!Number.isInteger(n) || n < 1 || n > 31) return setErr('أدخل يوماً بين 1 و31.');
+    act.setSettings({ payDay: n }); setErr(''); notify(`يوم صرف الراتب: ${n}`);
+  };
+  const cards = [['balance', 'بطاقة الرصيد المتبقي'], ['salary', 'بطاقة الراتب الأساسي']];
+  return (
+    <>
+      <Card className="flex flex-col gap-3 p-4">
+        <Field label="يوم صرف الراتب" htmlFor="set-pay-day" hint="إن لم يوجد اليوم في شهر ما، يُستخدم آخر يوم فيه. الافتراضي 23. للعد التنازلي فقط، ولا يضيف أي عملية.">
+          <div className="flex gap-2">
+            <input id="set-pay-day" type="number" inputMode="numeric" min="1" max="31" value={day} onChange={(e) => { setDay(e.target.value); setErr(''); }} className="input num text-lg font-bold" />
+            <button type="button" onClick={save} className="h-12 shrink-0 rounded-2xl bg-accent px-5 font-bold text-white">حفظ</button>
+          </div>
+        </Field>
+        {err && <p className="text-sm font-bold text-bad" role="alert">{err}</p>}
+      </Card>
+      <Card className="flex flex-col gap-2 p-4">
+        <p className="font-extrabold">ألوان البطاقتين الرئيسيتين</p>
+        <p className="text-xs text-muted">تُغيَّر من أيقونة اللوحة على كل بطاقة في الصفحة الرئيسية، وتسري على كل الأشهر.</p>
+        {cards.map(([k, label]) => (
+          <div key={k} className="flex items-center gap-2 rounded-xl bg-surface2 px-3 py-2">
+            <span className="h-6 w-6 shrink-0 rounded-md border border-line" style={{ background: st.cardColors[k] || '#EDE4FF' }} />
+            <span className="min-w-0 flex-1 text-sm font-bold">{label}<span className="block text-[11px] font-normal text-muted" dir="ltr" style={{ textAlign: 'right' }}>{st.cardColors[k] || 'الافتراضي #EDE4FF'}</span></span>
+            {st.cardColors[k] && <button type="button" onClick={() => { act.setSettings({ cardColors: { ...st.cardColors, [k]: null } }); notify('استُعيد اللون الافتراضي'); }} className="h-9 rounded-lg border border-line px-2.5 text-xs font-bold text-accent">استعادة اللون الافتراضي</button>}
+          </div>
+        ))}
+      </Card>
+    </>
+  );
+}

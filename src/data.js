@@ -127,6 +127,19 @@ export function normalizeStore(st) {
     activeId: months.some((m) => m.id === st.activeId) ? st.activeId : months[months.length - 1].id,
     debts: Array.isArray(st.debts) ? st.debts : [],
     goals: Array.isArray(st.goals) ? st.goals : [],
+    settings: normalizeSettings(st.settings),
+  };
+}
+
+// إعدادات المظهر العامة (تسري على كل الأشهر): ألوان البطاقتين الرئيسيتين، يوم صرف الراتب، وترتيب البنود لكل فئة
+export function normalizeSettings(x) {
+  const s = x && typeof x === 'object' ? x : {};
+  const cc = s.cardColors && typeof s.cardColors === 'object' ? s.cardColors : {};
+  const day = Number(s.payDay);
+  return {
+    cardColors: { salary: typeof cc.salary === 'string' ? cc.salary : null, balance: typeof cc.balance === 'string' ? cc.balance : null },
+    payDay: Number.isInteger(day) && day >= 1 && day <= 31 ? day : 23,
+    sortModes: s.sortModes && typeof s.sortModes === 'object' ? { ...s.sortModes } : {},
   };
 }
 

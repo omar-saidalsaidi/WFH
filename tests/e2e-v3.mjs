@@ -61,7 +61,7 @@ async function open(scheme = 'light', data = v5, opts = {}) {
 }
 const store = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('salary-tracker-omr-v4')));
 const month = (s, id) => s.months.find((m) => m.id === id);
-const hero = async (p) => (await p.locator('.salary-card').innerText()).replace(/\s+/g, ' ').replace(/,/g, '');
+const hero = async (p) => (await p.locator('.summary-cards').innerText()).replace(/\s+/g, ' ').replace(/,/g, '');
 const chipOf = (p, name) => p.getByRole('button', { name: `تسجيل مصروف على ${name}` }).locator('[aria-label^="النسبة المتبقية"]');
 const noHScroll = async (p, where) => check('الواجهة', `بلا تمرير أفقي: ${where}`, (await p.evaluate(() => document.documentElement.scrollWidth)) <= 390);
 
@@ -323,7 +323,7 @@ const lcard = await lightLight.p.locator('.salary-card').evaluate((el) => ({ bg:
 check('الواجهة', 'بطاقة الراتب: #F0E8FF → #EDE4FF، نص #4C347C، إطار #CBB7F0', lcard.bg.includes('rgb(240, 232, 255)') && lcard.bg.includes('rgb(237, 228, 255)') && lcard.c === 'rgb(76, 52, 124)' && lcard.border === 'rgb(203, 183, 240)', JSON.stringify(lcard));
 // عدم الاتصال: حظر كل الطلبات الخارجية
 const off = await open('light', v5, { offline: true });
-check('الواجهة', 'يعمل دون اتصال', (await off.p.locator('.salary-card').innerText()).includes('الرصيد الفعلي المتاح'));
+check('الواجهة', 'يعمل دون اتصال', (await off.p.locator('.summary-cards').innerText()).includes('الرصيد الفعلي المتاح'));
 for (const w of [320, 375, 430]) {
   await off.p.setViewportSize({ width: w, height: 800 }); await off.p.waitForTimeout(100);
   check('الواجهة', `بلا تمرير أفقي بعرض ${w}`, (await off.p.evaluate(() => document.documentElement.scrollWidth)) <= w);

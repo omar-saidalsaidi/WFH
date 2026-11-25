@@ -81,3 +81,16 @@ export function accentFor(value, dark) {
 export const themeVars = (dark) => (dark
   ? { '--ink': '226 232 240', '--muted': '148 163 184', '--surface': '26 35 47', '--surface2': '35 46 61', '--line': '45 58 76' }
   : { '--ink': '30 41 59', '--muted': '100 116 139', '--surface': '255 255 255', '--surface2': '241 244 248', '--line': '226 232 240' });
+
+// ألوان البطاقتين الرئيسيتين: تُستبدل متغيرات الطابع البنفسجي بألوان المستخدم مع تباين تلقائي.
+// null = اللون الافتراضي (البنفسجي الفاتح #EDE4FF).
+export const DEFAULT_SUMMARY_COLOR = '#EDE4FF';
+export function summaryVars(value, dark) {
+  if (!resolveColor(value)) return null;
+  const s = surfaceFor(value, dark);
+  const trip = (h) => rgb(h).join(' ');
+  return {
+    vars: { '--hp1': trip(s.bg), '--hpsec': trip(s.bg), '--hp2': trip(mix(s.bg, s.ink, 0.12)), '--hpb': trip(s.edge), '--hpink': trip(s.ink) },
+    ratio: s.ratio, bg: s.bg, ink: s.ink,
+  };
+}

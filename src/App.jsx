@@ -14,7 +14,9 @@ import {
   ITEM_ICONS, ACC_ICONS, SECTION_COLORS, CARD_COLORS, MetaContext, useMeta, Portal, status, TONE,
   Money, DeficitBadge, AccTag, Bar, Card, useModal, useIsDark, RemainChip, RemainBar,
 } from './ui.jsx';
-import { surfaceFor, accentFor, themeVars } from './colors.js';
+import { surfaceFor, accentFor, themeVars, summaryVars } from './colors.js';
+import { SalaryCountdown, PayDaySheet } from './countdownView.jsx';
+import { sortItems, itemState, SORT_MODES, DEFAULT_SORT } from './sorting.js';
 import { monthSummary, monthAlerts, closingBalance, remainingInfo, toBaisa, sumOMR, pctLabel } from './finance.js';
 import { ForecastCard, AlertsCard, PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
 import { MonthReport, AnnualReport, annualText } from './reports.jsx';
@@ -141,6 +143,8 @@ export default function App() {
     renameCards: (names) => setState((s) => ({ ...s, cards: s.cards.map((x) => (names[x.id] ? { ...x, name: names[x.id] } : x)) })),
     reset: () => { saveSnapshot(store, 'قبل مسح الشهر'); setState((m) => ({ ...m, ...defaultState() })); },
     setSalary: (salary) => setState((m) => ({ ...m, salary })),
+    // إعدادات المظهر العامة: تسري على كل الأشهر ولا تمس البيانات المالية
+    setSettings: (patch) => setStore((st) => ({ ...st, settings: { ...st.settings, ...patch } })),
     // الدخل الإضافي: خاص بالشهر النشط فقط، ولا يمس الراتب الأساسي
     saveIncome: (inc) => setState((m) => ({ ...m, incomes: (m.incomes || []).some((x) => x.id === inc.id) ? m.incomes.map((x) => (x.id === inc.id ? inc : x)) : [...(m.incomes || []), inc] })),
     deleteIncome: (id) => setState((m) => ({ ...m, incomes: (m.incomes || []).filter((x) => x.id !== id) })),
@@ -258,6 +262,12 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
   const [manageCards, setManageCards] = useState(false);
   const [manageSections, setManageSections] = useState(false);
   const [colorFor, setColorFor] = useState(null);
+  const [cardColor, setCardColor] = useState(null); // 'salary' | 'balance'
+  const [paySheet, setPaySheet] = useState(false);
+  const dark = useIsDark();
+  const balanceStyle = summaryVars(store.settings.cardColors.balance, dark)?.vars;
+  const salaryStyle = summaryVars(store.settings.cardColors.salary, dark)?.vars;
+  const onCardColor = (which) => setCardColor(which);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
   // العجز يُقاس على المتاح (الراتب + الرصيد المرحّل)
@@ -276,20 +286,53 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
 
   return (
     <div className="flex flex-col gap-4 fade-in">
-      <section className="salary-card rounded-3xl border border-hpb bg-gradient-to-bl from-hp1 via-hp1 to-hpsec p-4 text-hpink" aria-label="ملخص الراتب والرصيد">
-        {over > 0 && (
-          <div className="mb-3 flex w-fit items-center gap-2 rounded-full bg-bad px-3 py-1.5 text-sm font-extrabold text-white">
-            <TriangleAlert size={16} />عجز: المصروف تجاوز إجمالي الدخل{data.carryIn ? ' والمرحّل' : ''} بـ <span className="num">{fmtShort(over)}</span> ر.ع
+      <div className="summary-cards flex flex-col gap-2.5">
+      <section className="balance-card rounded-3xl border border-hpb bg-gradient-to-bl from-hp1 via-hp1 to-hpsec p-4 text-hpink" style={balanceStyle} aria-label="الرصيد المتبقي">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            {over > 0 && (
+              <div className="mb-3 flex w-fit items-center gap-2 rounded-full bg-bad px-3 py-1.5 text-sm font-extrabold text-white ring-2 ring-white/70">
+                <TriangleAlert size={16} />عجز: المصروف تجاوز إجمالي الدخل{data.carryIn ? ' والمرحّل' : ''} بـ <span className="num">{fmtShort(over)}</span> ر.ع
+              </div>
+            )}
+            <p className="text-[13px] font-bold text-hpink/75">الرصيد الفعلي المتاح · {data.label.replace(/^راتب /, '')}</p>
           </div>
-        )}
-        <p className="text-[13px] font-bold text-hpink/75">الرصيد الفعلي المتاح · {data.label.replace(/^راتب /, '')}</p>
-        <p className="mt-1 text-[40px] font-extrabold leading-none"><Money v={data.remaining} className={data.remaining < 0 ? 'text-bad' : ''} /></p>
+          <button onClick={() => onCardColor('balance')} aria-label="لون بطاقة الرصيد المتبقي" className="-me-1 -mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-hpink/70"><Palette size={15} /></button>
+        </div>
+        <p className="mt-1 text-[40px] font-extrabold leading-none">
+          {data.remaining < 0
+            ? <span className="inline-block rounded-2xl bg-surface px-2 py-1 shadow-sm" style={themeVars(dark)}><Money v={data.remaining} className="text-bad" /></span>
+            : <Money v={data.remaining} />}
+        </p>
         <p className="num mt-1.5 text-[11px] text-hpink/70">إجمالي الدخل {fmt(data.totalIncome)}{data.carryIn ? ` + مرحّل ${fmt(data.carryIn)}` : ''} − المصروف الفعلي {fmt(data.spent)}</p>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-hpink/12">
           <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 ? 'bg-bad' : 'bg-hpink/80'}`} style={{ width: `${pct}%` }} />
         </div>
+        <dl className="mt-3 grid grid-cols-2 gap-1.5 text-center">
+          <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
+            <dt className="text-[10px] font-bold text-hpink/75">المصروف الفعلي</dt>
+            <dd className="num text-base font-extrabold">{fmtShort(data.spent)}</dd>
+          </div>
+          <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
+            <dt className="text-[10px] font-bold text-hpink/75">المتبقي بعد المخصصات</dt>
+            <dd className="num text-base font-extrabold" dir="ltr">
+              {data.afterAllocations < 0 ? <span className="rounded-md bg-surface px-1.5 text-bad" style={themeVars(dark)}>{fmtShort(data.afterAllocations)}</span> : fmtShort(data.afterAllocations)}
+            </dd>
+          </div>
+        </dl>
+        {data.carryIn !== 0 && (
+          <p className="mt-2 rounded-xl bg-hp2/50 px-3 py-1.5 text-center text-xs">
+            رصيد مرحّل من الشهر السابق: <b className="num" dir="ltr">{data.carryIn > 0 ? '+' : '−'}{fmtShort(Math.abs(data.carryIn))}</b> ر.ع
+          </p>
+        )}
+      </section>
 
-        <dl className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+      <section className="salary-card rounded-3xl border border-hpb bg-gradient-to-bl from-hp1 via-hp1 to-hpsec p-3 text-hpink" style={salaryStyle} aria-label="الراتب الأساسي والدخل">
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[12px] font-bold text-hpink/75">الراتب والدخل</p>
+          <button onClick={() => onCardColor('salary')} aria-label="لون بطاقة الراتب الأساسي" className="-me-1 grid h-8 w-9 place-items-center rounded-lg text-hpink/70"><Palette size={14} /></button>
+        </div>
+        <dl className="grid grid-cols-3 gap-1.5 text-center">
           <div className="rounded-2xl bg-hp2/50 px-1 py-2">
             <dt className="text-[10px] font-bold text-hpink/75">الراتب الأساسي</dt>
             <dd>
@@ -312,22 +355,10 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
             <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.totalIncome)}</dd>
           </div>
         </dl>
-        <dl className="mt-1.5 grid grid-cols-2 gap-1.5 text-center">
-          <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
-            <dt className="text-[10px] font-bold text-hpink/75">المصروف الفعلي</dt>
-            <dd className="num text-base font-extrabold">{fmtShort(data.spent)}</dd>
-          </div>
-          <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
-            <dt className="text-[10px] font-bold text-hpink/75">المتبقي بعد المخصصات</dt>
-            <dd className={`num text-base font-extrabold ${data.afterAllocations < 0 ? 'text-bad' : ''}`} dir="ltr">{fmtShort(data.afterAllocations)}</dd>
-          </div>
-        </dl>
-        {data.carryIn !== 0 && (
-          <p className="mt-2 rounded-xl bg-hp2/50 px-3 py-1.5 text-center text-xs">
-            رصيد مرحّل من الشهر السابق: <b className="num" dir="ltr">{data.carryIn > 0 ? '+' : '−'}{fmtShort(Math.abs(data.carryIn))}</b> ر.ع
-          </p>
-        )}
       </section>
+      </div>
+
+      <SalaryCountdown payDay={store.settings.payDay} onSettings={() => setPaySheet(true)} />
 
       <ForecastCard s={data.summary} />
       <AlertsCard alerts={alerts} onOpenItem={(id) => openSheet(id)} />
@@ -351,6 +382,8 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
           openSheet={openSheet} swiped={swiped} setSwiped={setSwiped} onRemove={removeItem}
           onEdit={(c) => setEditor({ item: c })}
           onRename={() => setRename({ kind: view === 'card' ? 'card' : 'section', id: g.id, name: g.label })}
+          sortMode={view === 'card' ? 'manual' : (store.settings.sortModes[g.id] || DEFAULT_SORT)}
+          onSortMode={view === 'card' ? null : (mode) => act.setSettings({ sortModes: { ...store.settings.sortModes, [g.id]: mode } })}
           onColor={view === 'card' ? null : (item) => setColorFor(item
             ? { kind: 'item', id: item.id, name: item.name, color: item.color, accent: item.accent }
             : { kind: 'section', id: g.section.id, name: g.section.name, color: g.section.color, accent: g.section.accent })}
@@ -364,6 +397,12 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
       {rename && rename.kind === 'section' && (
         <SectionRenameSheet store={store} section={{ id: rename.id, name: rename.name }} onOp={act.sectionOp} notify={notify} onClose={() => setRename(null)} />
       )}
+      {cardColor && (
+        <ColorPicker store={store} notify={notify} onClose={() => setCardColor(null)}
+          target={{ kind: 'summary', id: cardColor, name: cardColor === 'salary' ? 'بطاقة الراتب الأساسي' : 'بطاقة الرصيد المتبقي', color: store.settings.cardColors[cardColor] }}
+          onApply={(color) => { act.setSettings({ cardColors: { ...store.settings.cardColors, [cardColor]: color } }); notify(color ? 'تم تطبيق اللون على كل الأشهر' : 'استُعيد اللون الافتراضي'); }} />
+      )}
+      {paySheet && <PayDaySheet value={store.settings.payDay} onClose={() => setPaySheet(false)} onSave={(d) => { act.setSettings({ payDay: d }); setPaySheet(false); notify(`يوم صرف الراتب: ${d}`); }} />}
       {colorFor && <ColorPicker store={store} target={colorFor} onOp={act.sectionOp} notify={notify} onClose={() => setColorFor(null)} />}
       {manageSections && <ManageSectionsSheet store={store} month={month} onOp={act.sectionOp} notify={notify} onClose={() => setManageSections(false)} />}
       {rename && rename.kind === 'card' && (
@@ -389,7 +428,7 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
   );
 }
 
-function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename, onColor }) {
+function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRemove, onEdit, onAdd, onRename, onColor, sortMode = 'manual', onSortMode }) {
   const dark = useIsDark();
   const sec = view === 'card' ? null : g.section;
   const surf = sec ? surfaceFor(sec.color, dark) : null;
@@ -418,14 +457,37 @@ function GroupBlock({ g, view, open, toggle, openSheet, swiped, setSwiped, onRem
       </div>
       {open && (
         <>
+          {onSortMode && g.list.length > 1 && (
+            <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-[11px]">
+              <label htmlFor={`sort-${g.id}`} className="font-bold text-muted">الترتيب</label>
+              <select id={`sort-${g.id}`} value={sortMode} onChange={(e) => onSortMode(e.target.value)}
+                className="h-8 rounded-lg border border-line bg-surface px-2 text-xs font-bold text-ink" style={themeVars(dark)}>
+                {SORT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+          )}
           {g.list.length > 0 ? (
             <ul className="divide-y divide-line border-t border-line">
-              {g.list.map((c) => (
-                <SwipeRow key={c.id} id={c.id} swiped={swiped} setSwiped={setSwiped} onDelete={() => onRemove(c)} archive={c.paid > 0}
-                  surface={surfaceFor(c.color, dark) || (surf ? { bg: 'rgb(var(--surface))', vars: {}, reset: true } : null)} dark={dark}>
-                  <ItemRow c={c} view={view} dark={dark} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} onColor={onColor ? () => onColor(c) : null} />
-                </SwipeRow>
-              ))}
+              {(() => {
+                // العرض فقط: لا يُغيَّر الترتيب اليدوي المحفوظ ولا المعرّفات ولا العمليات
+                const sorted = sortItems(g.list, sortMode);
+                let lastState = null;
+                return sorted.map((c) => {
+                  const st = itemState(c.planned, c.paid);
+                  const label = sortMode === 'smart' && st !== lastState && st !== 'outstanding'
+                    ? (st === 'over' ? 'متجاوزة للميزانية' : 'مكتملة') : null;
+                  lastState = st;
+                  return (
+                    <React.Fragment key={c.id}>
+                      {label && <li className="px-4 py-1" aria-hidden="true"><span className={`inline-block rounded-md bg-surface px-2 py-0.5 text-[11px] font-extrabold ${st === 'over' ? 'text-bad' : 'text-muted'}`} style={themeVars(dark)}>{label}</span></li>}
+                      <SwipeRow id={c.id} swiped={swiped} setSwiped={setSwiped} onDelete={() => onRemove(c)} archive={c.paid > 0}
+                        surface={surfaceFor(c.color, dark) || (surf ? { bg: 'rgb(var(--surface))', vars: {}, reset: true } : null)} dark={dark}>
+                        <ItemRow c={c} view={view} dark={dark} onOpen={() => openSheet(c.id)} onEdit={() => onEdit(c)} onColor={onColor ? () => onColor(c) : null} />
+                      </SwipeRow>
+                    </React.Fragment>
+                  );
+                });
+              })()}
             </ul>
           ) : <p className="border-t border-line px-4 py-3 text-sm text-muted">لا توجد بنود هنا.</p>}
           <div className="border-t border-line px-4 py-1.5">
@@ -515,6 +577,10 @@ function ItemRow({ c, view, dark, onOpen, onEdit, onColor }) {
               ? <span className="whitespace-nowrap rounded-md bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted">{groupShort}</span>
               : <AccTag id={c.account} />}
             {c.dueDay ? <span className="text-[10px] text-muted">يستحق يوم {c.dueDay}</span> : null}
+            {itemState(c.planned, c.paid) === 'over'
+              ? <span className="rounded-md bg-bad px-1.5 py-0.5 text-[10px] font-extrabold text-white">⚠ تجاوز الميزانية</span>
+              : c.planned > 0 && itemState(c.planned, c.paid) === 'done'
+                ? <span className="rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-extrabold text-good" style={themeVars(dark)}>✓ مكتمل</span> : null}
           </div>
         </div>
         <RemainChip rem={rem} dark={dark} />

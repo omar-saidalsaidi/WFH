@@ -2,12 +2,13 @@
 import React, { useState } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import { Sheet, PrimaryButton, RemainChip, RemainBar, useIsDark } from './ui.jsx';
-import { PALETTE, resolveColor, normalizeHex, surfaceFor, accentFor, contrast } from './colors.js';
+import { PALETTE, resolveColor, normalizeHex, surfaceFor, accentFor, contrast, summaryVars, themeVars, DEFAULT_SUMMARY_COLOR } from './colors.js';
 import { remainingInfo } from './finance.js';
 import { ScopePicker } from './sectionsView.jsx';
 
 // target: { kind: 'section' | 'item', id, name, color, accent }
-export function ColorPicker({ store, target, onOp, notify, onClose }) {
+export function ColorPicker({ store, target, onOp, onApply, notify, onClose }) {
+  const summary = target.kind === 'summary';
   const dark = useIsDark();
   const [part, setPart] = useState('color'); // color = خلفية البطاقة، accent = لون التمييز
   const [vals, setVals] = useState({ color: resolveColor(target.color), accent: resolveColor(target.accent) });
@@ -20,6 +21,7 @@ export function ColorPicker({ store, target, onOp, notify, onClose }) {
   const sample = remainingInfo(80, 20);
 
   const apply = () => {
+    if (summary) { if (vals.color !== resolveColor(target.color)) onApply(vals.color); onClose(); return; }
     const changed = { color: vals.color !== resolveColor(target.color), accent: vals.accent !== resolveColor(target.accent) };
     if (!changed.color && !changed.accent) { onClose(); return; }
     const op = target.kind === 'section'
@@ -34,14 +36,24 @@ export function ColorPicker({ store, target, onOp, notify, onClose }) {
   return (
     <Sheet title={`ألوان «${target.name}»`} onClose={onClose}
       footer={<PrimaryButton type="button" onClick={apply}><Check size={20} />تطبيق</PrimaryButton>}>
-      <div className="grid grid-cols-2 gap-1 rounded-xl bg-surface2 p-1" role="tablist" aria-label="جزء البطاقة">
+      {!summary && <div className="grid grid-cols-2 gap-1 rounded-xl bg-surface2 p-1" role="tablist" aria-label="جزء البطاقة">
         {[['color', target.kind === 'section' ? 'خلفية الفئة' : 'خلفية البند'], ['accent', 'لون التمييز']].map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={part === k} onClick={() => { setPart(k); setHex(vals[k] || ''); }}
             className={`h-9 rounded-lg text-[13px] font-bold ${part === k ? 'bg-surface text-accent shadow-sm' : 'text-muted'}`}>{l}</button>
         ))}
-      </div>
+      </div>}
 
       {/* معاينة مباشرة */}
+      {summary ? (
+        <div className={`rounded-2xl border border-hpb p-3 text-hpink ${surf ? '' : 'bg-gradient-to-bl from-hp1 to-hpsec'}`} style={surf ? { background: surf.bg, ...summaryVars(vals.color, dark).vars } : undefined} aria-label="معاينة">
+          <p className="text-[12px] font-bold text-hpink/75">{target.name}</p>
+          <p className="num text-3xl font-extrabold">612.50 <span className="text-sm">ر.ع</span></p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5 text-center text-xs">
+            <span className="rounded-xl bg-hp2/50 py-1.5 font-bold">الراتب الأساسي <b className="num block text-base">760</b></span>
+            <span className="rounded-xl bg-surface py-1.5 font-bold text-bad" style={themeVars(dark)}>عجز <b className="num block text-base">-20</b></span>
+          </div>
+        </div>
+      ) : (
       <div className="rounded-2xl border p-3" style={surf ? { background: surf.bg, borderColor: surf.edge, color: surf.ink, ...surf.vars } : undefined} aria-label="معاينة">
         <div className="flex items-center gap-2.5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-good/10 text-sm font-extrabold text-good" style={acc ? { background: acc.bg, color: acc.ink } : undefined}>أ</span>
@@ -53,6 +65,7 @@ export function ColorPicker({ store, target, onOp, notify, onClose }) {
         </div>
         <div className="mt-2"><RemainBar rem={sample} /></div>
       </div>
+      )}
       {surf && <p className="-mt-2 text-[11px] text-muted">النص يتكيف تلقائياً (تباين {surf.ratio.toFixed(1)}:1). ألوان التحذير المالية تبقى على شارة محايدة.</p>}
 
       {PALETTE.map((g) => (
@@ -83,8 +96,12 @@ export function ColorPicker({ store, target, onOp, notify, onClose }) {
       <button type="button" onClick={() => pick(null)} className={`flex h-10 items-center justify-center gap-1.5 rounded-xl border text-sm font-bold ${cur == null ? 'border-accent text-accent' : 'border-line text-muted'}`}>
         <RotateCcw size={15} />استعادة اللون الافتراضي
       </button>
-      <ScopePicker store={store} scope={scope} setScope={setScope} />
-      <p className="text-[11px] text-muted">الألوان تُنقل تلقائياً إلى الأشهر الجديدة.</p>
+      {summary
+        ? <p className="text-[11px] text-muted">إعداد عام للمظهر يسري على كل الأشهر، ولا يغيّر أي رقم. اللون الافتراضي هو البنفسجي الفاتح ({DEFAULT_SUMMARY_COLOR}).</p>
+        : <>
+          <ScopePicker store={store} scope={scope} setScope={setScope} />
+          <p className="text-[11px] text-muted">الألوان تُنقل تلقائياً إلى الأشهر الجديدة.</p>
+        </>}
     </Sheet>
   );
 }

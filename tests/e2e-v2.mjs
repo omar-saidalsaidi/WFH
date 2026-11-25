@@ -107,7 +107,7 @@ await dlg.getByRole('button', { name: 'تأكيد الحذف' }).click(); await 
 s = await store(p);
 check('حذف فئة فارغة', !month(s, 'cur').sections.some((x) => x.id === 'emergency'));
 await p.keyboard.press('Escape'); await p.waitForTimeout(200);
-const hero = (await p.locator('.salary-card').innerText()).replace(/\s+/g, ' ');
+const hero = (await p.locator('.summary-cards').innerText()).replace(/\s+/g, ' ');
 check('الحسابات لم تتغير بعد إدارة الفئات (المتبقي 600)', hero.includes('600.00'), hero);
 
 console.log('3) ألوان الفئات');
