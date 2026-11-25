@@ -84,6 +84,7 @@ export const nextPeriod = (p) => { const [y, m] = p.split('-').map(Number); cons
 export const monthLabelFor = (p) => { const [y, m] = p.split('-').map(Number); return `راتب شهر ${monthNameFmt.format(new Date(y, m - 1, 1))}`; };
 
 const newMonth = (period, base) => ({
+  incomes: [],
   carryIn: 0,
   carryFromId: null,
   id: `m${uid()}`,
@@ -93,7 +94,8 @@ const newMonth = (period, base) => ({
   ...(base || defaultState()),
 });
 
-// شهر جديد من قالب الشهر الحالي: نفس الراتب والفئات والبطاقات والبنود، بلا عمليات
+// شهر جديد من قالب الشهر الحالي: نفس الراتب والفئات والبطاقات والبنود وألوانها، بلا عمليات.
+// الدخل الإضافي لا يُنسخ، إلا المدخلات التي حدّدها المستخدم صراحةً كمتكررة.
 export const monthFromTemplate = (tpl, period) => ({
   ...newMonth(period),
   salary: tpl.salary,
@@ -101,9 +103,13 @@ export const monthFromTemplate = (tpl, period) => ({
   cards: tpl.cards.map((x) => ({ ...x })),
   categories: tpl.categories.map((c) => ({ ...c })),
   transactions: [],
+  incomes: (tpl.incomes || []).filter((i) => i.recurring).map((i) => ({
+    ...i, id: `inc${uid()}`, date: `${period}-${String(Math.min(Number((i.date || '').slice(8, 10)) || 1, 28)).padStart(2, '0')}`, copiedFrom: i.id,
+  })),
 });
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
+export const backupKeyFor = (v) => `salary-tracker-omr-backup-schema${v}`;
 export const SNAPSHOT_KEY = 'salary-tracker-omr-snapshots';
 
 // تطبيع البيانات: يضيف الحقول الناقصة بقيم افتراضية فقط، ولا يغيّر أي مبلغ أو عملية مسجلة
@@ -113,6 +119,7 @@ export function normalizeStore(st) {
     salary: typeof m.salary === 'number' ? m.salary : SALARY,
     carryIn: Number.isFinite(m.carryIn) ? m.carryIn : 0,
     carryFromId: m.carryFromId || null,
+    incomes: Array.isArray(m.incomes) ? m.incomes : [],
   }));
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -126,8 +133,16 @@ export function normalizeStore(st) {
 // تحميل البيانات: الصيغة الحالية، أو ترحيل بيانات الإصدار الأقدم إلى الشهر الحالي
 export function loadStore() {
   try {
-    const st = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (st && Array.isArray(st.months) && st.months.length) return normalizeStore(st);
+    const raw = localStorage.getItem(STORE_KEY);
+    const st = JSON.parse(raw);
+    if (st && Array.isArray(st.months) && st.months.length) {
+      // قبل ترقية بيانات من إصدار أقدم: نسخة احتياطية كاملة وثابتة من النص المحفوظ كما هو (مرة واحدة فقط)
+      const v = st.schemaVersion || 4;
+      if (v < SCHEMA_VERSION) {
+        try { if (!localStorage.getItem(backupKeyFor(v))) localStorage.setItem(backupKeyFor(v), raw); } catch (e) { /* المساحة ممتلئة: نتابع دون حذف شيء */ }
+      }
+      return normalizeStore(st);
+    }
   } catch (e) { /* ننتقل للترحيل */ }
   let base = null;
   try {

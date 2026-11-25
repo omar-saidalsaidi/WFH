@@ -1,8 +1,10 @@
 // واجهة إدارة الفئات: الإضافة، التسمية، الترتيب، النوع، الحذف الآمن، والألوان
 import React, { useState } from 'react';
-import { ArrowUp, ArrowDown, Pencil, Trash2, Check, Plus, Palette } from 'lucide-react';
+import { ArrowUp, ArrowDown, Pencil, Trash2, Check, Plus, Palette, Archive, ArchiveRestore, ChevronDown } from 'lucide-react';
 import { Sheet, Field, PrimaryButton } from './ui.jsx';
-import { PASTELS, sectionKind, countItems, countPayments, laterMonths, newSectionId } from './sections.js';
+import { resolveColor } from './colors.js';
+import { KINDS, KIND_ORDER } from './insights.js';
+import { sectionKind, countItems, countArchivedItems, countPayments, itemPayments, laterMonths, newSectionId } from './sections.js';
 
 const monthName = (l) => l.replace(/^راتب شهر /, '');
 
@@ -56,33 +58,6 @@ export function SectionRenameSheet({ store, section, onOp, notify, onClose }) {
   );
 }
 
-// اختيار لون باستيل للفئة
-export function ColorSheet({ store, section, onOp, notify, onClose }) {
-  const [scope, setScope] = useState('current');
-  const [pick, setPick] = useState(section.color || null);
-  const apply = () => { const r = onOp({ type: 'recolor', id: section.id, color: pick }, scope); notify(resultText(r, 'تم تغيير اللون')); onClose(); };
-  return (
-    <Sheet title={`لون «${section.name}»`} onClose={onClose}
-      footer={<PrimaryButton type="button" onClick={apply}><Check size={20} />تطبيق</PrimaryButton>}>
-      <div className="grid grid-cols-4 gap-2.5" role="radiogroup" aria-label="الألوان">
-        {PASTELS.map((p) => (
-          <button key={p.key} type="button" role="radio" aria-checked={pick === p.key} onClick={() => setPick(p.key)}
-            className={`pastel-${p.key} flex flex-col items-center gap-1 rounded-xl p-1.5 ${pick === p.key ? 'ring-2 ring-accent' : ''}`}>
-            <span className="swatch grid h-11 w-full place-items-center rounded-lg">{pick === p.key && <Check size={18} className="text-ink" />}</span>
-            <span className="text-[10px] font-bold text-muted">{p.name}</span>
-          </button>
-        ))}
-      </div>
-      <button type="button" onClick={() => setPick(null)} className={`h-10 rounded-xl border text-sm font-bold ${pick == null ? 'border-accent text-accent' : 'border-line text-muted'}`}>بلا لون (الافتراضي)</button>
-      <div className={`${pick ? `pastel-${pick} pastel-card` : ''} rounded-2xl border border-line bg-surface px-4 py-3`}>
-        <p className="font-extrabold">{section.name}</p>
-        <p className="num text-xs text-muted">معاينة: صُرف 45 من 120 ر.ع</p>
-      </div>
-      <ScopePicker store={store} scope={scope} setScope={setScope} />
-    </Sheet>
-  );
-}
-
 // إدارة الفئات
 export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
   const [scope, setScope] = useState('current');
@@ -90,7 +65,9 @@ export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
   const [deleting, setDeleting] = useState(null); // { id, moveTo }
   const [adding, setAdding] = useState({ name: '', kind: 'flexible' });
   const [err, setErr] = useState('');
-  const secs = month.sections;
+  const [openItems, setOpenItems] = useState(null);
+  const secs = month.sections.filter((x) => !x.archived);
+  const archivedSecs = month.sections.filter((x) => x.archived);
   const run = (op, done) => { const r = onOp(op, scope); notify(resultText(r, done)); return r; };
   const move = (k, dir) => {
     const order = secs.map((s) => s.id);
@@ -111,7 +88,7 @@ export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
           const isEdit = editing && editing.id === sec.id;
           const isDel = deleting && deleting.id === sec.id;
           return (
-            <li key={sec.id} className={`${sec.color ? `pastel-${sec.color} pastel-card` : ''} rounded-2xl border border-line bg-surface p-3`}>
+            <li key={sec.id} className="rounded-2xl border border-line bg-surface p-3" style={resolveColor(sec.color) ? { borderInlineStartWidth: 6, borderInlineStartColor: resolveColor(sec.color) } : undefined}>
               <div className="flex items-center gap-2">
                 <div className="flex flex-col">
                   <button type="button" onClick={() => move(k, -1)} disabled={k === 0} aria-label={`رفع ${sec.name}`} className="grid h-7 w-8 place-items-center rounded-md text-muted disabled:opacity-25"><ArrowUp size={15} /></button>
@@ -133,17 +110,25 @@ export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
                 {!isEdit && <button type="button" onClick={() => { setDeleting({ id: sec.id, moveTo: '' }); setEditing(null); setErr(''); }} aria-label={`حذف ${sec.name}`} className="grid h-9 w-9 place-items-center rounded-lg text-bad"><Trash2 size={15} /></button>}
               </div>
               <div className="mt-2 flex items-center gap-2 text-[11px]">
-                <span className="text-muted">النوع:</span>
-                {[['fixed', 'التزامات ثابتة'], ['flexible', 'مصاريف مرنة']].map(([kk, l]) => (
-                  <button key={kk} type="button" onClick={() => kind !== kk && run({ type: 'setKind', id: sec.id, kind: kk }, 'تم تغيير النوع')}
-                    aria-pressed={kind === kk} className={`rounded-full border px-2.5 py-1 font-bold ${kind === kk ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted'}`}>{l}</button>
-                ))}
+                <label htmlFor={`ms-kind-${sec.id}`} className="text-muted">التصنيف:</label>
+                <select id={`ms-kind-${sec.id}`} value={kind} onChange={(e) => run({ type: 'setKind', id: sec.id, kind: e.target.value }, 'تم تغيير التصنيف')} className="h-8 rounded-lg border border-line bg-surface px-2 text-xs font-bold">
+                  {KIND_ORDER.map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}
+                </select>
+                {!sec.kind && <span className="rounded-full bg-warn/12 px-2 py-0.5 font-bold text-warn">تلقائي</span>}
               </div>
+              <button type="button" onClick={() => setOpenItems(openItems === sec.id ? null : sec.id)} aria-expanded={openItems === sec.id}
+                className="mt-2 flex h-9 w-full items-center justify-between rounded-xl bg-surface/70 px-3 text-xs font-bold text-accent">
+                إدارة بنود الفئة ({items}{countArchivedItems(month, sec.id) ? ` + ${countArchivedItems(month, sec.id)} مؤرشف` : ''})
+                <ChevronDown size={15} className={openItems === sec.id ? 'rotate-180' : ''} />
+              </button>
+              {openItems === sec.id && <ItemsManager month={month} sectionId={sec.id} run={run} />}
               {isDel && (
                 <div className="mt-2.5 flex flex-col gap-2 rounded-xl border border-bad/30 bg-surface p-3 text-[13px]">
                   {items > 0 ? (
                     <>
-                      <p><b>هذه الفئة فيها <span className="num">{items}</span> بنود و<span className="num">{pays}</span> عمليات.</b> لن يُحذف أي بند أو عملية: انقل البنود إلى فئة أخرى أولاً، وتبقى كل عملياتها كما هي.</p>
+                      <p><b>هذه الفئة فيها <span className="num">{items}</span> بنود و<span className="num">{pays}</span> عمليات.</b> لن يُحذف أي بند أو عملية: انقل البنود إلى فئة أخرى، أو أرشف الفئة لإخفائها مع بقاء عملياتها محسوبة.</p>
+                      <button type="button" onClick={() => { run({ type: 'archiveSection', id: sec.id, archived: true }, 'أُرشفت الفئة، وعملياتها باقية'); setDeleting(null); }}
+                        className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-line text-sm font-bold text-ink"><Archive size={15} />أرشفة الفئة بدلاً من الحذف</button>
                       <label htmlFor={`ms-move-${sec.id}`} className="font-bold">نقل البنود إلى</label>
                       <select id={`ms-move-${sec.id}`} value={deleting.moveTo} onChange={(e) => { setDeleting({ ...deleting, moveTo: e.target.value }); setErr(''); }} className="input h-11">
                         <option value="" disabled>اختر فئة…</option>
@@ -168,6 +153,18 @@ export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
         })}
       </ul>
 
+      {archivedSecs.length > 0 && (
+        <div className="flex flex-col gap-1.5 rounded-2xl bg-surface2 p-3 text-[13px]">
+          <p className="font-bold">فئات مؤرشفة</p>
+          {archivedSecs.map((sec) => (
+            <div key={sec.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate">{sec.name} <span className="text-[11px] text-muted">(<span className="num">{countPayments(month, sec.id)}</span> عمليات محفوظة)</span></span>
+              <button type="button" onClick={() => run({ type: 'archiveSection', id: sec.id, archived: false }, 'أُعيدت الفئة')} className="flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-xs font-bold text-accent"><ArchiveRestore size={14} />استعادة</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <form className="flex flex-col gap-2 rounded-2xl border-2 border-dashed border-accent/30 p-3"
         onSubmit={(e) => {
           e.preventDefault();
@@ -181,17 +178,92 @@ export function ManageSectionsSheet({ store, month, onOp, notify, onClose }) {
           <input id="ms-new" value={adding.name} onChange={(e) => { setAdding({ ...adding, name: e.target.value }); setErr(''); }} className="input" placeholder="مثال: الأطفال والمدرسة" maxLength={40} />
         </Field>
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="text-muted">النوع:</span>
-          {[['fixed', 'التزامات ثابتة'], ['flexible', 'مصاريف مرنة']].map(([kk, l]) => (
-            <button key={kk} type="button" onClick={() => setAdding({ ...adding, kind: kk })} aria-pressed={adding.kind === kk}
-              className={`rounded-full border px-2.5 py-1 font-bold ${adding.kind === kk ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted'}`}>{l}</button>
-          ))}
+          <label htmlFor="ms-new-kind" className="text-muted">التصنيف:</label>
+          <select id="ms-new-kind" value={adding.kind} onChange={(e) => setAdding({ ...adding, kind: e.target.value })} className="h-8 rounded-lg border border-line bg-surface px-2 text-xs font-bold">
+            {KIND_ORDER.map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}
+          </select>
         </div>
         {err && !deleting && <p className="text-sm font-bold text-bad">{err}</p>}
         <button type="submit" className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-accent font-bold text-white"><Plus size={17} />إضافة الفئة</button>
       </form>
-      <p className="text-xs leading-relaxed text-muted">النوع يحدد طريقة التحليل: الالتزامات الثابتة لا يُقترح تخفيضها، والمصاريف المرنة تُحلَّل لاقتراح التوفير. المعرّفات الداخلية للفئات لا تتغير، فتبقى البنود والعمليات مرتبطة بها.</p>
+      <p className="text-xs leading-relaxed text-muted">التصنيف يحدد طريقة التحليل: الالتزامات الثابتة والادخار لا يُقترح تخفيضها، والأساسية تُخفَّض بلطف عند التجاوز فقط، والمرنة والاختيارية تُحلَّل لاقتراح التوفير. يمكن تغيير تصنيف أي بند منفرداً من نافذة تعديله. المعرّفات الداخلية للفئات لا تتغير، فتبقى البنود والعمليات مرتبطة بها.</p>
     </Sheet>
+  );
+}
+
+// بنود فئة واحدة: تسمية، ترتيب، أرشفة/استعادة، حذف آمن، إضافة سريعة
+function ItemsManager({ month, sectionId, run }) {
+  const all = month.categories.filter((c) => c.group === sectionId);
+  const active = all.filter((c) => !c.archived);
+  const archived = all.filter((c) => c.archived);
+  const [edit, setEdit] = useState(null);
+  const [del, setDel] = useState(null);
+  const [add, setAdd] = useState({ name: '', budget: '' });
+  const [err, setErr] = useState('');
+  const move = (k, dir) => {
+    const order = active.map((c) => c.id);
+    const j = k + dir;
+    if (j < 0 || j >= order.length) return;
+    [order[k], order[j]] = [order[j], order[k]];
+    run({ type: 'reorderItems', group: sectionId, order: [...order, ...archived.map((c) => c.id)] }, 'تم ترتيب البنود');
+  };
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 rounded-xl bg-surface p-2">
+      {active.length === 0 && <p className="px-1 py-2 text-xs text-muted">لا توجد بنود نشطة في هذه الفئة.</p>}
+      {active.map((c, k) => {
+        const pays = itemPayments(month, c.id);
+        return (
+          <div key={c.id} className="flex flex-col gap-1 rounded-lg border border-line px-2 py-1.5">
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => move(k, -1)} disabled={k === 0} aria-label={`رفع بند ${c.name}`} className="grid h-8 w-7 place-items-center text-muted disabled:opacity-25"><ArrowUp size={14} /></button>
+              <button type="button" onClick={() => move(k, 1)} disabled={k === active.length - 1} aria-label={`خفض بند ${c.name}`} className="grid h-8 w-7 place-items-center text-muted disabled:opacity-25"><ArrowDown size={14} /></button>
+              {edit && edit.id === c.id ? (
+                <form className="flex min-w-0 flex-1 gap-1" onSubmit={(e) => { e.preventDefault(); if (!edit.name.trim()) return; run({ type: 'updateItem', id: c.id, patch: { name: edit.name.trim() } }, 'تم تغيير اسم البند'); setEdit(null); }}>
+                  <label htmlFor={`it-name-${c.id}`} className="sr-only">اسم البند</label>
+                  <input id={`it-name-${c.id}`} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className="input h-9 text-sm font-bold" maxLength={40} autoFocus />
+                  <button type="submit" aria-label="حفظ اسم البند" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-white"><Check size={15} /></button>
+                </form>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-sm font-bold">{c.name} <span className="text-[10px] font-normal text-muted">(<span className="num">{pays}</span> عمليات)</span></span>
+              )}
+              {!(edit && edit.id === c.id) && <button type="button" onClick={() => { setEdit({ id: c.id, name: c.name }); setDel(null); }} aria-label={`تغيير اسم بند ${c.name}`} className="grid h-8 w-8 place-items-center text-muted"><Pencil size={13} /></button>}
+              <button type="button" onClick={() => { setDel(del === c.id ? null : c.id); setEdit(null); }} aria-label={`حذف بند ${c.name}`} className="grid h-8 w-8 place-items-center text-bad"><Trash2 size={13} /></button>
+            </div>
+            {del === c.id && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex-1 text-muted">{pays > 0 ? `له ${pays} عمليات، فسيُؤرشف وتبقى عملياته محسوبة.` : 'لا عمليات عليه، سيُحذف.'}</span>
+                <button type="button" onClick={() => { run({ type: 'deleteItem', id: c.id }, pays > 0 ? 'أُرشف البند' : 'حُذف البند'); setDel(null); }} className="h-8 rounded-lg bg-bad px-2.5 font-bold text-white">{pays > 0 ? 'تأكيد الأرشفة' : 'تأكيد الحذف'}</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {archived.length > 0 && (
+        <div className="mt-1 flex flex-col gap-1 border-t border-line pt-1.5">
+          <p className="text-[11px] font-bold text-muted">مؤرشف (مدفوعاته محسوبة، ولا يُحجز له مخصص)</p>
+          {archived.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              <button type="button" onClick={() => run({ type: 'archiveItem', id: c.id, archived: false }, 'أُعيد البند')} className="flex h-8 items-center gap-1 rounded-lg border border-line px-2 font-bold text-accent"><ArchiveRestore size={13} />استعادة</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <form className="mt-1 flex gap-1.5" onSubmit={(e) => {
+        e.preventDefault();
+        const b = add.budget === '' ? 0 : parseFloat(add.budget);
+        if (!add.name.trim()) return setErr('اكتب اسم البند.');
+        if (isNaN(b) || b < 0) return setErr('المخصص غير صحيح.');
+        run({ type: 'addItem', item: { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: add.name.trim(), group: sectionId, budget: Math.round(b * 1000) / 1000, account: 'applepay', custom: true } }, `أُضيف بند ${add.name.trim()}`);
+        setAdd({ name: '', budget: '' }); setErr('');
+      }}>
+        <label htmlFor={`add-it-${sectionId}`} className="sr-only">اسم البند الجديد</label>
+        <input id={`add-it-${sectionId}`} value={add.name} onChange={(e) => { setAdd({ ...add, name: e.target.value }); setErr(''); }} className="input h-9 text-sm" placeholder="بند جديد" maxLength={40} />
+        <input aria-label="مخصص البند الجديد" type="number" inputMode="decimal" step="0.001" min="0" value={add.budget} onChange={(e) => setAdd({ ...add, budget: e.target.value })} className="input num h-9 w-20 text-sm" placeholder="ر.ع" />
+        <button type="submit" aria-label="إضافة البند" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-white"><Plus size={16} /></button>
+      </form>
+      {err && <p className="text-xs font-bold text-bad">{err}</p>}
+    </div>
   );
 }
 

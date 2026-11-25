@@ -65,7 +65,9 @@ const noHScroll = async (where) => check(`بلا تمرير أفقي: ${where}`,
 
 console.log('1) الترحيل الآمن');
 let st = await store();
-check('الإصدار 5', st.schemaVersion === 5);
+check('الإصدار 6', st.schemaVersion === 6);
+const backupRaw = await p.evaluate(() => localStorage.getItem('salary-tracker-omr-backup-schema4'));
+check('نسخة احتياطية قبل الترقية مطابقة للبيانات الأصلية', backupRaw && JSON.stringify(JSON.parse(backupRaw)) === JSON.stringify(v4));
 check('العمليات لم تتغير', JSON.stringify(st.months[1].transactions) === JSON.stringify(curTx) && JSON.stringify(st.months[0].transactions) === JSON.stringify(prevTx));
 check('رصيد مرحّل افتراضي 0 وقوائم ديون وأهداف فارغة', st.months.every((m) => m.carryIn === 0) && st.debts.length === 0 && st.goals.length === 0);
 
@@ -78,7 +80,7 @@ check('قيمة الرصيد المتوقع', Math.abs(shown - expected) < 0.002
 await p.getByRole('button', { name: /كيف حُسب/ }).click();
 check('تفصيل التوقع ظاهر', await p.getByText('مخصصات والتزامات لم تُدفع بعد').isVisible());
 const funRow = await p.getByRole('button', { name: 'تسجيل مصروف على ترفيه' }).innerText();
-check('سطر المخطط والمدفوع والنسبة', /مخطط\s*40/.test(funRow) && /مدفوع\s*34/.test(funRow) && /85٪/.test(funRow), funRow.replace(/\s+/g, ' '));
+check('المخصص والمصروف والمتبقي والنسبة المتبقية', /المبلغ المخصص\s*40/.test(funRow) && /المبلغ المصروف\s*34/.test(funRow) && /المبلغ المتبقي\s*6/.test(funRow) && /النسبة المتبقية\s*15٪/.test(funRow), funRow.replace(/\s+/g, ' '));
 check('تنبيه 80٪', await p.getByText(/«ترفيه» بلغ 85٪/).isVisible());
 await p.screenshot({ path: `${OUT}/home.png`, fullPage: true });
 await noHScroll('الرئيسية');
@@ -224,7 +226,7 @@ for (const mode of ['month', 'year']) {
   if (mode === 'month') {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets['المخطط والفعلي'], { header: 1 });
     const rent = rows.find((r) => r[1] === 'الإيجار');
-    check('Excel شهري: أوراق وبيانات المخطط والمدفوع', wb.SheetNames.join() === 'الملخص,المخطط والفعلي,العمليات' && rent && rent[3] === 120 && rent[4] === 120 && rent[5] === 0, JSON.stringify(rent));
+    check('Excel شهري: أوراق وبيانات المخطط والمدفوع', wb.SheetNames.join() === 'الملخص,المخطط والفعلي,الدخل الإضافي,العمليات' && rent && rent[3] === 120 && rent[4] === 120 && rent[5] === 0, JSON.stringify(rent));
   } else {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets['المقارنة السنوية'], { header: 1 });
     check('Excel سنوي: 12 شهراً + إجمالي', rows.length === 14, String(rows.length));

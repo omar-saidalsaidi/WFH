@@ -3,6 +3,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { surfaceFor } from '../src/colors.js';
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require('playwright');
@@ -59,7 +60,7 @@ let p = await open('light', seed);
 
 console.log('1) بطاقة الراتب البنفسجية');
 const css = await p.locator('.salary-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
-check('خلفية #F0E8FF → #DDD0FA ونص #4C347C', css.bg.includes('rgb(240, 232, 255)') && css.bg.includes('rgb(221, 208, 250)') && css.color === 'rgb(76, 52, 124)', JSON.stringify(css));
+check('خلفية #F0E8FF → #EDE4FF ونص #4C347C', css.bg.includes('rgb(240, 232, 255)') && css.bg.includes('rgb(237, 228, 255)') && css.color === 'rgb(76, 52, 124)', JSON.stringify(css));
 check('زر تعديل الراتب باقٍ', await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).isVisible());
 await p.screenshot({ path: `${OUT}/v2-home-light.png` });
 
@@ -111,11 +112,12 @@ check('الحسابات لم تتغير بعد إدارة الفئات (المت
 
 console.log('3) ألوان الفئات');
 await p.getByRole('button', { name: `لون الأطفال والمدرسة` }).click(); await p.waitForTimeout(400);
-await p.getByRole('radio', { name: 'نعناعي' }).click();
+await p.getByRole('radio', { name: 'أخضر نعناعي' }).click();
 await p.getByRole('button', { name: 'تطبيق' }).click(); await p.waitForTimeout(200);
 s = await store(p);
-check('حُفظ اللون مع الفئة', month(s, 'cur').sections.find((x) => x.id === newId).color === 'mint');
-const card = p.locator('.pastel-mint.pastel-card').first();
+check('حُفظ اللون مع الفئة', month(s, 'cur').sections.find((x) => x.id === newId).color === '#E3F5EA');
+const cardOf = (pg, name) => pg.getByRole('button', { name: `لون ${name}`, exact: true }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]');
+const card = cardOf(p, 'الأطفال والمدرسة');
 const bgLight = await card.evaluate((el) => getComputedStyle(el).backgroundColor);
 check('البطاقة الخارجية ملونة (#E3F5EA)', bgLight === 'rgb(227, 245, 234)', bgLight);
 await card.locator('button[aria-expanded]').first().click(); await p.waitForTimeout(150);
@@ -126,7 +128,7 @@ await p.fill('#sec-rename', 'التزاماتي'); await p.getByRole('button', {
 s = await store(p);
 check('إعادة التسمية من رأس الفئة', month(s, 'cur').sections.find((x) => x.id === 'fixed').name === 'التزاماتي');
 await p.reload(); await p.waitForTimeout(300);
-check('التعديلات باقية بعد إعادة التحميل', (await p.locator('main').innerText()).includes('التزاماتي') && await p.locator('.pastel-mint.pastel-card').count() === 1);
+check('التعديلات باقية بعد إعادة التحميل', (await p.locator('main').innerText()).includes('التزاماتي') && (await cardOf(p, 'الأطفال والمدرسة').evaluate((el) => getComputedStyle(el).backgroundColor)) === 'rgb(227, 245, 234)');
 await p.screenshot({ path: `${OUT}/v2-categories.png`, fullPage: true });
 await noHScroll(p, 'الرئيسية');
 
@@ -136,12 +138,12 @@ await p.getByRole('button', { name: /تحليل سلوك الإنفاق/ }).clic
 const main = (await p.locator('main').innerText()).replace(/\s+/g, ' ');
 check('تحليل 3 أشهر منها 2 مكتملة', main.includes('حُلّلت 3 أشهر فيها عمليات، منها 2 مكتملة'), main.slice(0, 200));
 check('مثال الأكل: 80 مقابل 110، تجاوز 30، نسبة 37.5٪', /الفئة: الأكل والمطاعم.*الميزانية المحددة 80 ر.ع المصروف الفعلي 110 ر.ع تجاوز الميزانية 30 ر.ع نسبة التجاوز 37.5٪/.test(main));
-check('نص التوصية والتوفير السنوي', main.includes('تجاوزت الميزانية المحددة بنسبة 37.5٪') && main.includes('بمقدار 20 ر.ع شهرياً') && main.includes('240 ر.ع سنوياً'));
+check('نص التوصية والتوفير السنوي', main.includes('تجاوزت مصروفات «الأكل والمطاعم» الميزانية المحددة بنسبة 37.5٪') && main.includes('بمقدار 20 ر.ع شهرياً') && main.includes('240 ر.ع سنوياً'));
 check('تكرار التجاوز', main.includes('تجاوز الميزانية تكرر في 2 من 3 أشهر'));
-check('الملخص: توفير شهري وسنوي', /توفير ممكن شهرياً 20 ر.ع ≈ 240 ر.ع سنوياً/.test(main));
+check('الملخص: توفير شهري وسنوي', /فرص التوفير الشهرية 20 ر.ع/.test(main) && /فرص التوفير السنوية 240 ر.ع/.test(main));
 check('بيان الخصوصية وأنه ليس ذكاءً اصطناعياً', main.includes('وليس ذكاءً اصطناعياً') && main.includes('لا تُرسل بياناتك'));
 check('الإيجار ليس من البنود التي تحتاج انتباهاً', !/الفئة: الإيجار/.test(main));
-await p.getByRole('tab', { name: /كل البنود/ }).click(); await p.waitForTimeout(100);
+await p.getByRole('tablist', { name: 'الأولوية' }).getByRole('tab', { name: 'الكل', exact: true }).click(); await p.waitForTimeout(100);
 const all = (await p.locator('main').innerText()).replace(/\s+/g, ' ');
 check('الالتزامات الثابتة لا يُقترح تخفيضها', /الفئة: الإيجار.*لا نقترح تخفيضه لأنه من الالتزامات الأساسية/.test(all));
 await p.getByRole('button', { name: 'تحديث التحليل' }).click(); await p.waitForTimeout(100);
@@ -155,8 +157,10 @@ const dcss = await pd.locator('.salary-card').evaluate((el) => { const c = getCo
 check('بطاقة الراتب داكنة بنص فاتح', dcss.bg.includes('rgb(43, 35, 66)') && dcss.color === 'rgb(230, 219, 255)', JSON.stringify(dcss));
 await pd.evaluate(() => { const s = JSON.parse(localStorage.getItem('salary-tracker-omr-v4')); s.months.find((m) => m.id === 'cur').sections[1].color = 'peach'; localStorage.setItem('salary-tracker-omr-v4', JSON.stringify(s)); });
 await pd.reload(); await pd.waitForTimeout(300);
-const dbg = await pd.locator('.pastel-peach.pastel-card').first().evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, fg: getComputedStyle(el.querySelector('span.block')).color }));
-check('لون الفئة الداكن المكافئ مع نص فاتح', dbg.bg === 'rgb(58, 42, 32)' && dbg.fg === 'rgb(226, 232, 240)', JSON.stringify(dbg));
+const secName = (await pd.evaluate(() => JSON.parse(localStorage.getItem('salary-tracker-omr-v4')).months.find((m) => m.id === 'cur').sections[1].name));
+const dbg = await cardOf(pd, secName).evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, fg: getComputedStyle(el.querySelector('span.block')).color }));
+const exp = surfaceFor('peach', true); const hex2rgb = (h) => `rgb(${[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ')})`;
+check('مفتاح اللون القديم يُترجم ويُكيَّف للوضع الداكن مع نص فاتح', dbg.bg === hex2rgb(exp.bg) && dbg.fg === 'rgb(248, 250, 252)' && exp.ratio >= 4.5, JSON.stringify({ dbg, exp: exp.bg }));
 await pd.screenshot({ path: `${OUT}/v2-home-dark.png` });
 
 console.log('6) بيانات غير كافية وصفر مصروفات');

@@ -1,11 +1,13 @@
 // عناصر الواجهة المشتركة
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Landmark, Smartphone, CreditCard, Users, Building2, HandCoins, PiggyBank, Wifi, Zap, Droplets, Fuel, Utensils,
   ShoppingCart, Popcorn, Wrench, WashingMachine, Scissors, Stethoscope, Siren,
 } from 'lucide-react';
 import { fmt, fmtShort } from './data.js';
+import { themeVars } from './colors.js';
+import { pctLabel } from './finance.js';
 import { itemStatus } from './finance.js';
 
 export const ITEM_ICONS = {
@@ -63,8 +65,8 @@ export function Bar({ spent, budget, h = 'h-1.5' }) {
     </div>
   );
 }
-export function Card({ children, className = '' }) {
-  return <div className={`rounded-2xl border border-line bg-surface ${className}`}>{children}</div>;
+export function Card({ children, className = '', style }) {
+  return <div className={`rounded-2xl border border-line bg-surface ${className}`} style={style}>{children}</div>;
 }
 
 export function useModal(onClose) {
@@ -85,6 +87,7 @@ export function Sheet({ title, onClose, onSubmit, children, footer, wide }) {
     <Portal>
       <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
         <Tag onClick={(e) => e.stopPropagation()} onSubmit={onSubmit ? (e) => { e.preventDefault(); onSubmit(e); } : undefined}
+          noValidate={onSubmit ? true : undefined}
           role="dialog" aria-modal="true" aria-label={title}
           className={`sheet-in gutter flex max-h-[92vh] w-full ${wide ? 'max-w-lg' : 'max-w-md'} flex-col gap-3.5 overflow-y-auto rounded-t-3xl bg-surface pt-3`}
           style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
@@ -126,3 +129,62 @@ export function Progress({ value, tone = 'good', h = 'h-2' }) {
 }
 
 export const pctText = (x) => (x == null ? '—' : `${Math.round(x * 100)}٪`);
+
+// الوضع الداكن الحالي: تفضيل النظام، أو اختيار صريح عبر data-theme
+export function useIsDark() {
+  const read = () => {
+    const t = document.documentElement.getAttribute('data-theme');
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  };
+  const [dark, setDark] = useState(read);
+  useEffect(() => {
+    const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const on = () => setDark(read());
+    mq && mq.addEventListener && mq.addEventListener('change', on);
+    const mo = new MutationObserver(on);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => { mq && mq.removeEventListener && mq.removeEventListener('change', on); mo.disconnect(); };
+  }, []);
+  return dark;
+}
+
+// تنسيق النسبة المتبقية وألوانها (ألوان الحالة المالية ثابتة ولا تتأثر بالألوان الزخرفية)
+export const REM_TONE = {
+  good: { text: 'text-good', bar: 'bg-good', label: null },
+  warn: { text: 'text-warn', bar: 'bg-warn', label: null },
+  low: { text: 'text-bad', bar: 'bg-bad', label: 'قارب على النفاد' },
+  zero: { text: 'text-muted', bar: 'bg-muted', label: 'استُهلك بالكامل' },
+  over: { text: 'text-bad', bar: 'bg-bad', label: 'تجاوز الميزانية' },
+  none: { text: 'text-muted', bar: 'bg-line', label: 'بلا مخصص' },
+  unbudgeted: { text: 'text-bad', bar: 'bg-bad', label: 'صرف بلا مخصص' },
+};
+
+// شارة النسبة المتبقية: رقم كبير وعريض، بخلفية محايدة ثابتة
+export function RemainChip({ rem, dark, size = 'md' }) {
+  const t = REM_TONE[rem.tone];
+  const big = size === 'lg' ? 'text-[26px]' : 'text-[21px]';
+  const sub = rem.tone === 'over' ? `تجاوز ${fmtShort(rem.over)} ر.ع`
+    : rem.tone === 'unbudgeted' ? `صرف ${fmtShort(rem.over)} بلا مخصص`
+      : t.label || `متبقي ${fmtShort(rem.remaining)}`;
+  return (
+    <span className="flex min-w-[82px] shrink-0 flex-col items-center rounded-xl bg-surface px-2 py-1 text-center shadow-[0_0_0_1px_rgb(var(--line))]" style={themeVars(dark)}
+      aria-label={rem.pct == null ? `النسبة المتبقية غير متاحة: ${sub}` : `النسبة المتبقية ${pctLabel(rem.pct)}، ${sub}`}>
+      <span className="text-[9px] font-bold leading-tight text-muted">النسبة المتبقية</span>
+      <span className={`num ${big} font-extrabold leading-tight ${t.text}`} dir="ltr">{rem.pct == null ? '—' : pctLabel(rem.pct)}</span>
+      <span className={`whitespace-nowrap text-[10px] font-bold leading-tight ${rem.tone === 'good' || rem.tone === 'warn' ? 'text-muted' : t.text}`}>{sub}</span>
+    </span>
+  );
+}
+
+// شريط عريض يمثل المتبقي (وليس المصروف)؛ لا عرض سالب أبداً
+export function RemainBar({ rem, h = 'h-2.5' }) {
+  const t = REM_TONE[rem.tone];
+  return (
+    <span className={`block ${h} w-full overflow-hidden rounded-full`} style={{ background: 'rgb(var(--ink) / 0.12)' }}
+      role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(rem.bar)} aria-label="المتبقي من المخصص">
+      <span className={`block ${h} rounded-full ${t.bar} transition-all duration-500`} style={{ width: `${rem.bar}%` }} />
+    </span>
+  );
+}

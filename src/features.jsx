@@ -209,7 +209,7 @@ function Stat({ k, v, sub, tone, signed: sg }) {
 
 // ================= تبويب الأدوات =================
 const TOOLS = [
-  { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'المخطط مقابل الفعلي واقتراحات توفير عملية', icon: Lightbulb },
+  { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb },
   { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
   { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
   { id: 'scenario', title: 'محاكاة السيناريوهات', sub: 'جرّب تغييرات دون المساس ببياناتك', icon: FlaskConical },
@@ -245,7 +245,7 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
         <button onClick={() => setView(null)} aria-label="رجوع للأدوات" className="grid h-10 w-10 place-items-center rounded-xl bg-surface2"><ArrowRight size={19} /></button>
         <h1 className="text-xl font-extrabold">{tool.title}</h1>
       </div>
-      {view === 'behavior' && <SpendingBehavior store={store} />}
+      {view === 'behavior' && <SpendingBehavior store={store} act={act} notify={notify} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
       {view === 'goals' && <Goals store={store} month={month} act={act} notify={notify} />}
       {view === 'scenario' && <Scenario month={month} />}

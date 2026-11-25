@@ -92,3 +92,44 @@ test('نوع الفئة الافتراضي', () => {
   assert.equal(sectionKind({ id: 'daily' }), 'flexible');
   assert.equal(sectionKind({ id: 'sec_1', kind: 'fixed' }), 'fixed');
 });
+
+test('البنود: إضافة وتسمية وترتيب ضمن الفئة', () => {
+  let s = store();
+  s = applySectionOp(s, { type: 'addItem', item: { id: 'c_x', name: 'قهوة', group: 'daily', budget: 15, account: 'applepay' } }, 'current').store;
+  s = applySectionOp(s, { type: 'updateItem', id: 'food', patch: { name: 'الأكل والمطاعم' } }, 'forward').store;
+  s = applySectionOp(s, { type: 'reorderItems', group: 'daily', order: ['c_x', 'fuel', 'food'] }, 'current').store;
+  const nov = s.months[1];
+  assert.deepEqual(nov.categories.map((c) => c.id), ['rent', 'c_x', 'fuel', 'food'], 'بنود الفئات الأخرى في مكانها');
+  assert.equal(nov.categories.find((c) => c.id === 'food').name, 'الأكل والمطاعم');
+  assert.equal(s.months[2].categories.find((c) => c.id === 'food').name, 'الأكل والمطاعم', 'الشهر اللاحق');
+  assert.equal(s.months[0].categories.find((c) => c.id === 'food').name, 'أكل', 'الشهر السابق لم يتغير');
+  assert.equal(s.months[2].categories.some((c) => c.id === 'c_x'), false, 'الإضافة للشهر الحالي فقط');
+});
+
+test('حذف بند له عمليات يتحول إلى أرشفة، والبند بلا عمليات يُحذف', () => {
+  const s = store();
+  const r = applySectionOp(s, { type: 'deleteItem', id: 'food' }, 'current');
+  const nov = r.store.months[1];
+  assert.equal(r.archived, 1);
+  assert.equal(nov.categories.find((c) => c.id === 'food').archived, true);
+  assert.deepEqual(nov.transactions, s.months[1].transactions);
+  const sum = monthSummary(nov, '2026-11-10');
+  assert.equal(sum.paid, 50); assert.equal(sum.orphanPaid, 0, 'لا عمليات يتيمة');
+  const food = sum.items.find((i) => i.id === 'food');
+  assert.equal(food.planned, 30, 'المؤرشف لا يحجز باقي مخصصه');
+  const r2 = applySectionOp(s, { type: 'deleteItem', id: 'rent' }, 'current');
+  assert.equal(r2.store.months[1].categories.some((c) => c.id === 'rent'), false);
+  const back = applySectionOp(r.store, { type: 'archiveItem', id: 'food', archived: false }, 'current');
+  assert.equal(monthSummary(back.store.months[1], '2026-11-10').items.find((i) => i.id === 'food').planned, 80, 'الاستعادة تعيد المخصص');
+});
+
+test('أرشفة فئة فيها عمليات بدل حذفها', () => {
+  const s = store();
+  const r = applySectionOp(s, { type: 'archiveSection', id: 'daily', archived: true }, 'current');
+  const nov = r.store.months[1];
+  assert.equal(nov.sections.find((x) => x.id === 'daily').archived, true);
+  assert.equal(nov.categories.length, 3);
+  const sum = monthSummary(nov, '2026-11-10');
+  assert.equal(sum.paid, 50);
+  assert.equal(sum.planned, 120 + 30 + 20, 'باقي مخصصات الفئة المؤرشفة غير محجوز');
+});

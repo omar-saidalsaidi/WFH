@@ -57,7 +57,8 @@ test('التطبيع يضيف الحقول الناقصة دون تغيير ال
   assert.equal(n.months[0].sections.length, 4);
   assert.equal(n.months[0].cards.length, 4);
   assert.deepEqual(n.debts, []); assert.deepEqual(n.goals, []);
-  assert.equal(n.schemaVersion, 5);
+  assert.equal(n.schemaVersion, 6);
+  assert.deepEqual(n.months[0].incomes, []);
 });
 
 test('البصمة ثابتة', () => {

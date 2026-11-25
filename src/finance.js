@@ -6,7 +6,10 @@
 //   نسبة التنفيذ (exec) = المدفوع ÷ المخطط
 
 export const r3 = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
-const sum = (arr, f = (x) => x) => r3(arr.reduce((a, x) => a + f(x), 0));
+// الحساب الدقيق بالبيسة (1 ر.ع = 1000 بيسة) كأعداد صحيحة لتجنب أخطاء الفاصلة العائمة
+export const toBaisa = (x) => Math.round((Number(x) || 0) * 1000);
+const sum = (arr, f = (x) => x) => arr.reduce((a, x) => a + toBaisa(f(x)), 0) / 1000;
+export const sumOMR = sum;
 const pad = (n) => String(n).padStart(2, '0');
 
 export const WARN_AT = 0.8; // تنبيه عند 80٪
@@ -34,7 +37,7 @@ export function itemStatus(paid, planned) {
 export function monthSummary(month, today) {
   const carryIn = Number.isFinite(month.carryIn) ? month.carryIn : 0;
   const paidBy = {};
-  for (const t of month.transactions) paidBy[t.catId] = (paidBy[t.catId] || 0) + t.amount;
+  for (const t of month.transactions) paidBy[t.catId] = (paidBy[t.catId] || 0) + toBaisa(t.amount);
   const known = new Set(month.categories.map((c) => c.id));
 
   const isCurrent = !!today && periodOf(today) === month.period;
@@ -42,10 +45,13 @@ export function monthSummary(month, today) {
   const dayNow = isCurrent ? Number(today.slice(8, 10)) : null;
   const isPast = !!today && month.period && month.period < periodOf(today);
 
+  // البنود والفئات المؤرشفة: تبقى مدفوعاتها محسوبة، ولا يُحجز لها ما تبقى من مخصصها
+  const archivedSec = new Set((month.sections || []).filter((x) => x.archived).map((x) => x.id));
   const items = month.categories.map((c) => {
-    const planned = r3(c.budget);
-    const paid = r3(paidBy[c.id] || 0);
-    const remaining = r3(planned - paid);
+    const paid = (paidBy[c.id] || 0) / 1000;
+    const archived = !!c.archived || archivedSec.has(c.group);
+    const planned = archived ? Math.min(r3(c.budget), paid) : r3(c.budget);
+    const remaining = (toBaisa(planned) - toBaisa(paid)) / 1000;
     // التوقع: الالتزامات غير المدفوعة تُحسب بكامل المتبقي منها؛
     // والمصاريف اليومية في الشهر الجاري تُسقَط بحسب وتيرة الصرف إن كانت أعلى من المخطط
     let projected = Math.max(planned, paid);
@@ -55,9 +61,10 @@ export function monthSummary(month, today) {
     if (isPast) projected = paid; // الشهر المنتهي: لا مصروفات قادمة
     const toSpend = r3(Math.max(0, projected - paid));
     return {
-      ...c, planned, paid, remaining,
+      ...c, archived, planned, paid, remaining,
       exec: planned > 0 ? paid / planned : null,
       status: itemStatus(paid, planned),
+      rem: remainingInfo(planned, paid),
       projected: r3(projected), toSpend,
       paceOver: r3(Math.max(0, projected - Math.max(planned, paid))),
     };
@@ -66,8 +73,15 @@ export function monthSummary(month, today) {
   const orphanPaid = sum(month.transactions.filter((t) => !known.has(t.catId)), (t) => t.amount);
   const planned = sum(items, (i) => i.planned);
   const paid = sum(month.transactions, (t) => t.amount);
-  const available = r3(month.salary + carryIn);
-  const balance = r3(available - paid); // الرصيد الفعلي الآن
+  // الدخل: الراتب الأساسي مستقل، والدخل الإضافي يُجمع من قائمة الشهر نفسه فقط
+  const incomes = Array.isArray(month.incomes) ? month.incomes : [];
+  const extraIncome = sum(incomes, (i) => i.amount);
+  const totalIncome = (toBaisa(month.salary) + toBaisa(extraIncome)) / 1000;
+  const available = (toBaisa(totalIncome) + toBaisa(carryIn)) / 1000;
+  const balance = (toBaisa(available) - toBaisa(paid)) / 1000; // الرصيد الفعلي المتاح: المتاح − المدفوع فعلاً
+  // المتبقي بعد المخصصات: لكل بند يُحتسب الأكبر من مخصصه أو المدفوع عليه (فلا يُخصم المبلغ مرتين)، إضافة لمصروفات البنود المحذوفة
+  const committed = sum(items, (i) => Math.max(i.planned, i.paid)) + orphanPaid;
+  const afterAllocations = (toBaisa(available) - toBaisa(committed)) / 1000;
   const unpaid = sum(items, (i) => Math.max(0, i.planned - i.paid)); // التزامات ومخصصات لم تُدفع بعد
   const paceOver = sum(items, (i) => i.paceOver);
   const toSpend = sum(items, (i) => i.toSpend);
@@ -75,15 +89,31 @@ export function monthSummary(month, today) {
   const saved = sum(items.filter(isSavingItem), (i) => i.paid);
 
   return {
-    items, salary: month.salary, carryIn, available, planned, paid, orphanPaid,
-    balance, plannedBalance: r3(available - planned), unpaid, paceOver, toSpend, forecast, saved,
+    items, salary: month.salary, extraIncome, totalIncome, incomes, carryIn, available, planned, paid, orphanPaid,
+    balance, afterAllocations, rem: remainingInfo(planned, paid), plannedBalance: r3(available - planned), unpaid, paceOver, toSpend, forecast, saved,
     exec: planned > 0 ? paid / planned : null,
     isCurrent, isPast, dim, dayNow,
   };
 }
 
-// رصيد نهاية الشهر الذي يُرحَّل (فعلي فقط: الراتب + المرحّل − المدفوع)
-export const closingBalance = (month) => r3(month.salary + (month.carryIn || 0) - sum(month.transactions, (t) => t.amount));
+// رصيد نهاية الشهر الذي يُرحَّل (فعلي فقط: الراتب + الدخل الإضافي + المرحّل − المدفوع)
+export const closingBalance = (month) => (toBaisa(month.salary) + toBaisa(sum(month.incomes || [], (i) => i.amount)) + toBaisa(month.carryIn || 0) - toBaisa(sum(month.transactions, (t) => t.amount))) / 1000;
+
+// ---------- النسبة المتبقية ----------
+// المتبقي = المخصص − المصروف، والنسبة المتبقية = المتبقي ÷ المخصص × 100
+// الحالة: good (>50٪) · warn (>20٪ حتى 50٪) · low (>0٪ حتى 20٪) · zero (=0٪) · over (<0٪)
+// المخصص صفر: none (لا مخصص ولا صرف) · unbudgeted (صرف بلا مخصص) — بلا قسمة على صفر
+export function remainingInfo(planned, paid) {
+  const remaining = (toBaisa(planned) - toBaisa(paid)) / 1000;
+  if (!(planned > 0)) {
+    return { remaining, pct: null, bar: 0, tone: paid > 0 ? 'unbudgeted' : 'none', over: paid > 0 ? paid : 0 };
+  }
+  const pct = (remaining / planned) * 100;
+  const tone = remaining < 0 ? 'over' : remaining === 0 ? 'zero' : pct > 50 ? 'good' : pct > 20 ? 'warn' : 'low';
+  return { remaining, pct, bar: Math.max(0, Math.min(100, pct)), tone, over: remaining < 0 ? -remaining : 0 };
+}
+// نص النسبة: عدد صحيح، أو منزلة عشرية واحدة إن لم تكن صحيحة (37.5٪)
+export const pctLabel = (pct) => (pct == null ? null : `${Math.round(pct * 10) / 10}٪`);
 
 // ---------- التنبيهات ----------
 export function monthAlerts(month, store, today) {
@@ -171,18 +201,20 @@ export function annualSeries(store, endPeriod, count = 12) {
   const periods = Array.from({ length: count }, (_, k) => addMonths(endPeriod, k - count + 1));
   const rows = periods.map((p) => {
     const ms = store.months.filter((m) => m.period === p);
-    if (!ms.length) return { period: p, empty: true, salary: 0, planned: 0, paid: 0, surplus: 0, saved: 0 };
+    if (!ms.length) return { period: p, empty: true, salary: 0, extra: 0, income: 0, planned: 0, paid: 0, surplus: 0, saved: 0 };
     const ss = ms.map((m) => monthSummary(m, null));
     const salary = sum(ss, (s) => s.salary);
+    const extra = sum(ss, (s) => s.extraIncome);
+    const income = (toBaisa(salary) + toBaisa(extra)) / 1000;
     const paid = sum(ss, (s) => s.paid);
     return {
-      period: p, empty: false, label: ms[0].label, salary, planned: sum(ss, (s) => s.planned), paid,
-      surplus: r3(salary - paid), saved: sum(ss, (s) => s.saved), carryIn: sum(ss, (s) => s.carryIn),
+      period: p, empty: false, label: ms[0].label, salary, extra, income, planned: sum(ss, (s) => s.planned), paid,
+      surplus: (toBaisa(income) - toBaisa(paid)) / 1000, saved: sum(ss, (s) => s.saved), carryIn: sum(ss, (s) => s.carryIn),
     };
   });
   const filled = rows.filter((r) => !r.empty);
   const totals = {
-    salary: sum(filled, (r) => r.salary), paid: sum(filled, (r) => r.paid), planned: sum(filled, (r) => r.planned),
+    salary: sum(filled, (r) => r.salary), extra: sum(filled, (r) => r.extra), income: sum(filled, (r) => r.income), paid: sum(filled, (r) => r.paid), planned: sum(filled, (r) => r.planned),
     saved: sum(filled, (r) => r.saved), surplus: sum(filled, (r) => r.surplus), months: filled.length,
   };
   totals.avgPaid = filled.length ? r3(totals.paid / filled.length) : 0;

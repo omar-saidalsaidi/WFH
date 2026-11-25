@@ -128,3 +128,93 @@ test('الملخص يستخدم آخر شهر مكتمل عند وجود شهر 
   assert.equal(r.summary.paid, 230);
   assert.ok(r.notes.some((n) => /آخر شهر مكتمل/.test(n)));
 });
+
+// ---------- الإصدار 3 ----------
+import { classifyItem, simulateSavings, KINDS } from '../src/insights.js';
+
+test('التصنيف: خمسة أنواع، اختيار المستخدم أولاً، والتلقائي معلَّم للمراجعة', () => {
+  assert.deepEqual(Object.keys(KINDS), ['fixed', 'essential', 'flexible', 'discretionary', 'saving']);
+  assert.deepEqual(classifyItem({ id: 'food', kind: 'essential' }, { id: 'daily' }), { kind: 'essential', auto: false });
+  assert.deepEqual(classifyItem({ id: 'food' }, { id: 'daily', kind: 'discretionary' }), { kind: 'discretionary', auto: false });
+  assert.deepEqual(classifyItem({ id: 'food' }, { id: 'daily' }), { kind: 'flexible', auto: true });
+  assert.deepEqual(classifyItem({ id: 'rent' }, { id: 'fixed' }), { kind: 'fixed', auto: true });
+  assert.deepEqual(classifyItem({ id: 'saving' }, { id: 'fixed' }), { kind: 'saving', auto: true });
+  assert.deepEqual(classifyItem({ id: 'x', isSaving: true }, { id: 'daily' }), { kind: 'saving', auto: false });
+});
+
+test('صيغة التوصية: الملاحظة، التوصية، الأولوية، والشرح', () => {
+  const r = analyzeSpending({ months: [month('2026-10', [tx('food', 110, '2026-10-02')])] }, { today: '2026-11-05' });
+  const f = r.items.find((x) => x.id === 'food');
+  assert.match(f.observation, /تجاوزت مصروفات «الأكل والمطاعم» الميزانية المحددة بنسبة 37.5٪/);
+  assert.match(f.recommendation, /بمقدار 20 ر.ع شهرياً/);
+  assert.match(f.recommendation, /سقف أسبوعي/);
+  assert.match(f.recommendation, /بشرط استمرار التخفيض/);
+  assert.equal(f.priority, 'high');
+  assert.match(f.explain, /110 − الميزانية 80 = 30/);
+  assert.equal(f.autoClass, true);
+});
+
+test('الأساسي: خفض لطيف محدود بـ 10٪، والاختياري حتى 35٪', () => {
+  const cats2 = cats.map((c) => (c.id === 'food' ? { ...c, kind: 'essential' } : c.id === 'fuel' ? { ...c, kind: 'discretionary' } : c));
+  const m = { ...month('2026-10', [tx('food', 110, '2026-10-02'), tx('fuel', 140, '2026-10-02')]), categories: cats2 };
+  const r = analyzeSpending({ months: [m] }, { today: '2026-11-05' });
+  const food = r.items.find((x) => x.id === 'food');
+  assert.equal(food.kind, 'essential'); assert.equal(food.cut, 10); // نصف 30 = 15، سقف 10٪ من 110 = 11 => 10
+  assert.match(food.recommendation, /دون المساس بالاحتياجات الأساسية/);
+  const fuel = r.items.find((x) => x.id === 'fuel');
+  assert.equal(fuel.cut, 40); // ثلثا 60 = 40، سقف 35٪ من 140 = 49
+  assert.match(fuel.recommendation, /تأجيل المشتريات غير الضرورية/);
+  assert.equal(r.summary.monthlySaving, 50, 'مجموع خفض واحد لكل بند دون تكرار');
+});
+
+test('لوحة المؤشرات: الالتزام بالميزانية واتجاه الإنفاق والبنود للمراجعة', () => {
+  const months = [
+    month('2026-08', [tx('food', 70, '2026-08-02'), tx('rent', 120, '2026-08-01')]),
+    month('2026-09', [tx('food', 75, '2026-09-02'), tx('rent', 120, '2026-09-01')]),
+    month('2026-10', [tx('food', 110, '2026-10-02'), tx('rent', 120, '2026-10-01'), tx('fuel', 30, '2026-10-02')]),
+  ];
+  const r = analyzeSpending({ months }, { today: '2026-11-05' });
+  assert.equal(r.summary.adherence, 2 / 3, 'الإيجار والبنزين ضمن الميزانية، والأكل تجاوز');
+  assert.equal(r.summary.monthTrend.change, 67.5); // 260 مقابل متوسط 192.5
+  assert.ok(r.summary.review >= 1);
+  assert.equal(r.summary.totalIncome, 760);
+  assert.equal(r.summary.balance, 500);
+});
+
+test('تصفية الشهر: تحليل شهر سابق محدد', () => {
+  const months = [
+    month('2026-09', [tx('food', 100, '2026-09-02')]),
+    month('2026-10', [tx('food', 50, '2026-10-02')]),
+  ];
+  const r = analyzeSpending({ months }, { today: '2026-11-05', refPeriod: '2026-09' });
+  assert.equal(r.summary.period, '2026-09');
+  assert.equal(r.items.find((x) => x.id === 'food').excess, 20);
+  assert.deepEqual(r.availableMonths.map((m) => m.period), ['2026-10', '2026-09']);
+});
+
+test('محاكي التوفير: 10٪ ومبلغ مخصص دون تعديل البيانات', () => {
+  const s = { months: [month('2026-10', [tx('food', 110, '2026-10-02'), tx('fuel', 90, '2026-10-02'), tx('rent', 120, '2026-10-01')])] };
+  const before = JSON.stringify(s);
+  const r = analyzeSpending(s, { today: '2026-11-05' });
+  const sim = simulateSavings(r, { pct: 10 });
+  assert.equal(sim.base, 200, 'الإيجار الثابت مستثنى');
+  assert.equal(sim.reduction, 20); assert.equal(sim.annual, 240);
+  assert.equal(sim.expensesBefore, 320); assert.equal(sim.expensesAfter, 300);
+  assert.equal(sim.balanceAfter, sim.balanceBefore + 20);
+  assert.deepEqual(sim.budgetPatch.map((p) => [p.id, p.to]), [['food', 72], ['fuel', 72]]);
+  const amt = simulateSavings(r, { amount: 500 });
+  assert.equal(amt.reduction, 200, 'لا يتجاوز الخفض المصروف القابل للتخفيض');
+  for (const p of [5, 15, 20]) assert.equal(simulateSavings(r, { pct: p }).reduction, 2 * p);
+  assert.equal(JSON.stringify(s), before);
+});
+
+test('صرف بلا مخصص: لا توفير مختلق، بل اقتراح مخصص', () => {
+  const ecat = { id: 'emergency', name: 'طارئ', group: 'daily', budget: 0, account: 'x' };
+  const m = (period, a) => ({ ...month(period, [tx('emergency', a, `${period}-03`)]), categories: [...cats, ecat] });
+  const r = analyzeSpending({ months: [m('2026-09', 12), m('2026-10', 7.5)] }, { today: '2026-11-05' });
+  const e = r.items.find((x) => x.id === 'emergency');
+  assert.equal(e.cut, 0); assert.equal(e.excessPct, null); assert.equal(e.priority, 'medium');
+  assert.match(e.observation, /دون مخصص/);
+  assert.match(e.recommendation, /خصّص له مبلغاً شهرياً \(نحو 10 ر.ع\)/);
+  assert.equal(r.summary.monthlySaving, 0);
+});

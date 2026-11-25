@@ -53,6 +53,10 @@ export function validateBackup(input) {
     if (!PERIOD.test(m.period || '')) errors.push(`${where}: الفترة غير صحيحة.`);
     if (!isNum(m.salary) || m.salary < 0) errors.push(`${where}: الراتب غير صحيح.`);
     if (m.carryIn != null && !isNum(m.carryIn)) errors.push(`${where}: الرصيد المرحّل غير صحيح.`);
+    if (m.incomes != null && !Array.isArray(m.incomes)) errors.push(`${where}: قائمة الدخل الإضافي غير صالحة.`);
+    (m.incomes || []).forEach((x, k) => {
+      if (!x || !isStr(x.id) || typeof x.name !== 'string' || !isNum(x.amount) || x.amount <= 0 || !DATE.test(x.date || '')) errors.push(`${where}: الدخل الإضافي ${k + 1} غير صالح.`);
+    });
     if (!Array.isArray(m.categories)) errors.push(`${where}: قائمة البنود مفقودة.`);
     else m.categories.forEach((c, k) => {
       if (!c || !isStr(c.id) || typeof c.name !== 'string' || !isNum(c.budget) || c.budget < 0) errors.push(`${where}: البند ${k + 1} غير صالح.`);
