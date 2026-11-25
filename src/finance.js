@@ -255,3 +255,12 @@ export function compareScenario(month, adj, today) {
   const diff = Object.fromEntries(Object.keys(before).map((k) => [k, r3(after[k] - before[k])]));
   return { before, after, diff };
 }
+
+// ---------- حد التنبيه للمصروف الفعلي ----------
+// تنبيه بصري فقط: التجاوز = إجمالي المصروف الفعلي − الحد، ويُعرض فقط إذا كان أكبر من صفر.
+// الحد مستقل عن الراتب والدخل الإضافي والرصيد، ولا يمنع تسجيل أي مصروف.
+export const DEFAULT_SPEND_LIMIT = 650;
+export function spendWarning(paid, limit = DEFAULT_SPEND_LIMIT) {
+  const excess = (toBaisa(paid) - toBaisa(limit)) / 1000;
+  return { over: excess > 0, excess: excess > 0 ? excess : 0, limit };
+}

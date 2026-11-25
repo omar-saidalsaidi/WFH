@@ -8,22 +8,21 @@ import {
 } from 'lucide-react';
 import {
   COMPARE_IDS, STORAGE_KEY, STORE_KEY, dateLabel, dayHeading, defaultState, fmt, fmtShort, loadStore, monthFromTemplate, nextPeriod,
-  round3, todayISO, uid, saveSnapshot,
+  round3, todayISO, uid, saveSnapshot, fmt3,
 } from './data.js';
 import {
   ITEM_ICONS, ACC_ICONS, SECTION_COLORS, CARD_COLORS, MetaContext, useMeta, Portal, status, TONE,
   Money, DeficitBadge, AccTag, Bar, Card, useModal, useIsDark, RemainChip, RemainBar,
 } from './ui.jsx';
 import { surfaceFor, accentFor, themeVars, summaryVars } from './colors.js';
-import { SalaryCountdown, PayDaySheet } from './countdownView.jsx';
+import { HeaderCountdown } from './countdownView.jsx';
 import { sortItems, itemState, SORT_MODES, DEFAULT_SORT } from './sorting.js';
-import { monthSummary, monthAlerts, closingBalance, remainingInfo, toBaisa, sumOMR, pctLabel } from './finance.js';
+import { monthSummary, monthAlerts, closingBalance, remainingInfo, toBaisa, sumOMR, pctLabel, spendWarning } from './finance.js';
 import { ForecastCard, AlertsCard, PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
 import { MonthReport, AnnualReport, annualText } from './reports.jsx';
 import { applySectionOp } from './sections.js';
 import { ManageSectionsSheet, SectionRenameSheet } from './sectionsView.jsx';
 import { ColorPicker } from './colorView.jsx';
-import { IncomeSheet } from './incomeView.jsx';
 import { KINDS, KIND_ORDER } from './insights.js';
 import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 
@@ -76,8 +75,6 @@ export default function App() {
   // كل التعديلات تُطبَّق على الشهر النشط فقط
   const setState = (fn) => setStore((st) => ({ ...st, months: st.months.map((m) => (m.id === st.activeId ? fn(m) : m)) }));
   const [monthSheet, setMonthSheet] = useState(false);
-  const [salarySheet, setSalarySheet] = useState(false);
-  const [incomeSheet, setIncomeSheet] = useState(false);
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem('st4-tab') || 'home'; } catch (e) { return 'home'; } });
   const [report, setReport] = useState(false);
   const [sheet, setSheet] = useState(null);
@@ -179,12 +176,12 @@ export default function App() {
     <MetaContext.Provider value={data.meta}>
     <div className="app-shell min-h-full bg-bg text-ink">
       <header className="sticky z-30 border-b border-line bg-bg/95 backdrop-blur" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
-        <div className="gutter mx-auto flex max-w-md items-center gap-2.5 py-2.5">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-hero text-white"><Wallet size={18} /></div>
+        <div className="gutter mx-auto flex max-w-md items-center gap-2 py-2.5">
           <button onClick={() => setMonthSheet(true)} className="min-w-0 flex-1 text-right leading-tight" aria-label={`${data.label}، تغيير الشهر`}>
             <span className="block text-[10px] font-medium text-muted">تتبع مصاريف الراتب</span>
-            <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="truncate">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
+            <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="min-w-0 break-words">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
           </button>
+          <HeaderCountdown payDay={store.settings.payDay} />
           <button onClick={() => { setReportMode('month'); setReport(true); }} aria-label="تصدير / طباعة التقرير" className="flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 px-2 text-[10px] font-bold leading-none text-accent">
             <FileText size={16} />تصدير / طباعة
           </button>
@@ -192,7 +189,7 @@ export default function App() {
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} store={store} month={state} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onEditSalary={() => setSalarySheet(true)} onEditIncome={() => setIncomeSheet(true)} />}
+        {tab === 'home' && <HomeTab data={data} store={store} month={state} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onManageIncome={() => { setToolView('income'); setTab('tools'); }} />}
         {tab === 'stats' && <StatsTab data={data} store={store} />}
         {tab === 'tools' && <ToolsTab store={store} month={state} act={act} notify={setToast} view={toolView} setView={setToolView} openReport={(m) => { setReportMode(m); setReport(true); }} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
@@ -206,11 +203,6 @@ export default function App() {
       )}
 
       {report && <ReportModal data={data} store={store} mode={reportMode} onClose={() => { setReport(false); setReportMode('month'); }} notify={setToast} />}
-      {salarySheet && (
-        <SalarySheet value={state.salary} onClose={() => setSalarySheet(false)}
-          onSave={(v) => { act.setSalary(v); setSalarySheet(false); setToast(`الراتب الآن ${fmtShort(v)} ر.ع`); }} />
-      )}
-      {incomeSheet && <IncomeSheet month={state} act={act} notify={setToast} onClose={() => setIncomeSheet(false)} />}
       {monthSheet && (
         <MonthSheet store={store} active={state} onClose={() => setMonthSheet(false)} act={act} notify={setToast} />
       )}
@@ -253,7 +245,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSalary, onEditIncome }) {
+function HomeTab({ data, store, month, alerts, act, notify, openSheet, onManageIncome }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
@@ -263,7 +255,7 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
   const [manageSections, setManageSections] = useState(false);
   const [colorFor, setColorFor] = useState(null);
   const [cardColor, setCardColor] = useState(null); // 'salary' | 'balance'
-  const [paySheet, setPaySheet] = useState(false);
+  const sw = spendWarning(data.spent, store.settings.spendLimit);
   const dark = useIsDark();
   const balanceStyle = summaryVars(store.settings.cardColors.balance, dark)?.vars;
   const salaryStyle = summaryVars(store.settings.cardColors.salary, dark)?.vars;
@@ -306,12 +298,17 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
         </p>
         <p className="num mt-1.5 text-[11px] text-hpink/70">إجمالي الدخل {fmt(data.totalIncome)}{data.carryIn ? ` + مرحّل ${fmt(data.carryIn)}` : ''} − المصروف الفعلي {fmt(data.spent)}</p>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-hpink/12">
-          <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 ? 'bg-bad' : 'bg-hpink/80'}`} style={{ width: `${pct}%` }} />
+          <div className={`h-1.5 rounded-full transition-all duration-700 ${over > 0 || sw.over ? 'bg-bad' : 'bg-hpink/80'}`} style={{ width: `${pct}%` }} />
         </div>
         <dl className="mt-3 grid grid-cols-2 gap-1.5 text-center">
-          <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
-            <dt className="text-[10px] font-bold text-hpink/75">المصروف الفعلي</dt>
-            <dd className="num text-base font-extrabold">{fmtShort(data.spent)}</dd>
+          <div className="spend-tile rounded-2xl border border-hpb/70 px-1 py-1.5" data-over={sw.over ? 'true' : 'false'}>
+            <dt className="text-[10px] font-bold text-hpink/75">إجمالي المصروف الفعلي</dt>
+            <dd className="num text-base font-extrabold">
+              {sw.over
+                ? <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 text-bad" style={themeVars(dark)}><TriangleAlert size={13} aria-label="تحذير" />{fmt3(data.spent)}</span>
+                : fmtShort(data.spent)}
+            </dd>
+            {sw.over && <dd className="mt-1"><span className="inline-block rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-bold leading-snug text-bad" style={themeVars(dark)}>تجاوز حد الإنفاق بمقدار <span className="num">{fmt3(sw.excess)}</span> ر.ع</span></dd>}
           </div>
           <div className="rounded-2xl border border-hpb/70 px-1 py-1.5">
             <dt className="text-[10px] font-bold text-hpink/75">المتبقي بعد المخصصات</dt>
@@ -330,25 +327,20 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
       <section className="salary-card rounded-3xl border border-hpb bg-gradient-to-bl from-hp1 via-hp1 to-hpsec p-3 text-hpink" style={salaryStyle} aria-label="الراتب الأساسي والدخل">
         <div className="mb-1.5 flex items-center justify-between">
           <p className="text-[12px] font-bold text-hpink/75">الراتب والدخل</p>
-          <button onClick={() => onCardColor('salary')} aria-label="لون بطاقة الراتب الأساسي" className="-me-1 grid h-8 w-9 place-items-center rounded-lg text-hpink/70"><Palette size={14} /></button>
+          <span className="flex items-center gap-1">
+            <button onClick={onManageIncome} className="h-8 rounded-lg px-2 text-[11px] font-bold text-hpink underline-offset-2 hover:underline">إدارة ←</button>
+            <button onClick={() => onCardColor('salary')} aria-label="لون بطاقة الراتب الأساسي" className="-me-1 grid h-8 w-9 place-items-center rounded-lg text-hpink/70"><Palette size={14} /></button>
+          </span>
         </div>
         <dl className="grid grid-cols-3 gap-1.5 text-center">
           <div className="rounded-2xl bg-hp2/50 px-1 py-2">
             <dt className="text-[10px] font-bold text-hpink/75">الراتب الأساسي</dt>
-            <dd>
-              <button onClick={onEditSalary} aria-label="تعديل مبلغ الراتب" className="mx-auto mt-0.5 flex items-center gap-1 rounded-lg px-1 text-[17px] font-extrabold">
-                <span className="num">{fmtShort(data.salary)}</span><Pencil size={11} className="opacity-70" />
-              </button>
-            </dd>
+            <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.salary)}</dd>
           </div>
           <div className="rounded-2xl border border-dashed border-hpb bg-hp1/70 px-1 py-2">
             <dt className="text-[10px] font-bold text-hpink/75">الدخل الإضافي</dt>
-            <dd>
-              <button onClick={onEditIncome} aria-label="إدارة الدخل الإضافي" className="mx-auto mt-0.5 flex items-center gap-1 rounded-lg px-1 text-[17px] font-extrabold">
-                <Plus size={12} className="opacity-70" /><span className="num">{fmtShort(data.extraIncome)}</span>
-              </button>
-              <span className="block text-[9px] text-hpink/60">{data.incomes.length ? `${data.incomes.length} مدخلات` : 'لا يوجد'}</span>
-            </dd>
+            <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.extraIncome)}</dd>
+            <dd className="text-[9px] text-hpink/60">{data.incomes.length ? `${data.incomes.length} مدخلات` : 'لا يوجد'}</dd>
           </div>
           <div className="rounded-2xl bg-hp2/50 px-1 py-2">
             <dt className="text-[10px] font-bold text-hpink/75">إجمالي الدخل</dt>
@@ -358,7 +350,7 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
       </section>
       </div>
 
-      <SalaryCountdown payDay={store.settings.payDay} onSettings={() => setPaySheet(true)} />
+
 
       <ForecastCard s={data.summary} />
       <AlertsCard alerts={alerts} onOpenItem={(id) => openSheet(id)} />
@@ -402,7 +394,6 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onEditSal
           target={{ kind: 'summary', id: cardColor, name: cardColor === 'salary' ? 'بطاقة الراتب الأساسي' : 'بطاقة الرصيد المتبقي', color: store.settings.cardColors[cardColor] }}
           onApply={(color) => { act.setSettings({ cardColors: { ...store.settings.cardColors, [cardColor]: color } }); notify(color ? 'تم تطبيق اللون على كل الأشهر' : 'استُعيد اللون الافتراضي'); }} />
       )}
-      {paySheet && <PayDaySheet value={store.settings.payDay} onClose={() => setPaySheet(false)} onSave={(d) => { act.setSettings({ payDay: d }); setPaySheet(false); notify(`يوم صرف الراتب: ${d}`); }} />}
       {colorFor && <ColorPicker store={store} target={colorFor} onOp={act.sectionOp} notify={notify} onClose={() => setColorFor(null)} />}
       {manageSections && <ManageSectionsSheet store={store} month={month} onOp={act.sectionOp} notify={notify} onClose={() => setManageSections(false)} />}
       {rename && rename.kind === 'card' && (
@@ -599,36 +590,6 @@ function ItemRow({ c, view, dark, onOpen, onEdit, onColor }) {
   );
 }
 
-// نافذة تعديل الراتب
-function SalarySheet({ value, onSave, onClose }) {
-  const [v, setV] = useState(String(value));
-  const [err, setErr] = useState('');
-  useModal(onClose);
-  return (
-    <Portal>
-    <div className="no-print backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-hero/40" onClick={onClose}>
-      <form onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="salary-title"
-        onSubmit={(e) => { e.preventDefault(); const n = parseFloat(v); if (isNaN(n) || n <= 0) return setErr('أدخل مبلغاً أكبر من صفر.'); onSave(round3(n)); }}
-        className="sheet-in gutter flex w-full max-w-md flex-col gap-3.5 rounded-t-3xl bg-surface pt-3" style={{ paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))' }}>
-        <span className="mx-auto h-1.5 w-10 rounded-full bg-line" aria-hidden="true" />
-        <div className="flex items-center justify-between">
-          <h2 id="salary-title" className="text-xl font-extrabold">مبلغ الراتب لهذا الشهر</h2>
-          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid h-10 w-10 place-items-center rounded-full bg-surface2 text-muted"><X size={20} /></button>
-        </div>
-        <div className="relative">
-          <label htmlFor="salary-input" className="sr-only">الراتب</label>
-          <input id="salary-input" type="number" inputMode="decimal" step="0.001" min="0" value={v} onChange={(e) => { setV(e.target.value); setErr(''); }}
-            className="input num h-16 pe-4 ps-14 text-3xl font-extrabold" autoFocus onFocus={(e) => e.target.select()} />
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-base font-bold text-muted">ر.ع</span>
-        </div>
-        {err && <p className="text-sm font-bold text-bad">{err}</p>}
-        <p className="text-xs text-muted">أضف العلاوات أو المكافآت أو الزيادة هنا. يتغير المتبقي والعجز فوراً، والأشهر الجديدة تبدأ بهذا المبلغ.</p>
-        <button type="submit" className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-accent text-lg font-extrabold text-white"><Check size={21} strokeWidth={2.8} />حفظ الراتب</button>
-      </form>
-    </div>
-    </Portal>
-  );
-}
 
 // نافذة الأشهر: تسمية الشهر الحالي، التبديل بين الأشهر، بدء شهر جديد
 function MonthSheet({ store, active, act, notify, onClose }) {

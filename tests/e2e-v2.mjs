@@ -61,7 +61,7 @@ let p = await open('light', seed);
 console.log('1) بطاقة الراتب البنفسجية');
 const css = await p.locator('.salary-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
 check('خلفية #F0E8FF → #EDE4FF ونص #4C347C', css.bg.includes('rgb(240, 232, 255)') && css.bg.includes('rgb(237, 228, 255)') && css.color === 'rgb(76, 52, 124)', JSON.stringify(css));
-check('زر تعديل الراتب باقٍ', await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).isVisible());
+check('رابط إدارة الراتب والدخل في البطاقة', await p.getByRole('button', { name: 'إدارة ←' }).isVisible());
 await p.screenshot({ path: `${OUT}/v2-home-light.png` });
 
 console.log('2) إدارة الفئات');

@@ -52,7 +52,7 @@ async function open({ scheme = 'light', data = seed, time = '2026-11-25T10:00:00
   return p;
 }
 const store = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('salary-tracker-omr-v4')));
-const countdown = async (p) => (await p.locator('.countdown-card').innerText()).replace(/\s+/g, ' ');
+const countdown = async (p) => { const el = p.locator('header .header-countdown'); return `${await el.getAttribute('aria-label')} | ${(await el.innerText()).replace(/\s+/g, ' ')}`; };
 const order = (p) => p.locator('[aria-label^="تسجيل مصروف على "]').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label').replace('تسجيل مصروف على ', '')));
 const rgbOf = (s) => { const m = s.match(/\d+(\.\d+)?/g).map(Number); return `#${m.slice(0, 3).map((x) => Math.round(x).toString(16).padStart(2, '0')).join('')}`; };
 
@@ -77,7 +77,7 @@ check('حفظ مستقل لكل بطاقة', st.settings.cardColors.balance === 
 bal = await cardCss('.balance-card'); sal = await cardCss('.salary-card');
 check('بطاقتان بلونين مستقلين', bal.bg.includes('rgb(155, 48, 48)') && sal.bg.includes('rgb(144, 202, 249)'), JSON.stringify({ bal, sal }));
 check('تباين النص تلقائياً (فاتح على العنابي، داكن على الأزرق)', bal.ink === 'rgb(248, 250, 252)' && sal.ink === 'rgb(30, 41, 59)');
-check('تعديل الراتب ما زال يعمل', await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).isVisible());
+check('رابط إدارة الراتب والدخل ما زال متاحاً', await p.getByRole('button', { name: 'إدارة ←' }).isVisible());
 await p.reload(); await p.clock.runFor(400);
 check('الألوان باقية بعد إعادة التشغيل', (await cardCss('.balance-card')).bg.includes('rgb(155, 48, 48)'));
 await p.getByRole('button', { name: /تغيير الشهر/ }).click(); await p.getByRole('radio', { name: /راتب شهر 2026-10/ }).click(); await p.clock.runFor(300);
@@ -113,14 +113,14 @@ for (const scheme of ['light', 'dark']) {
 // ================= 2) العد التنازلي =================
 section('2) العد التنازلي للراتب');
 const cases = [
-  ['قبل يوم 23', '2026-11-05T10:00:00+04:00', ['18 يوماً متبقياً', '23 نوفمبر 2026', '23 أكتوبر 2026']],
-  ['يوم 23', '2026-11-23T08:00:00+04:00', ['اليوم موعد الراتب', '23 نوفمبر 2026', '23 أكتوبر 2026']],
-  ['بعد يوم 23 (مثال الطلب)', '2026-11-25T10:00:00+04:00', ['28 يوماً متبقياً', '23 ديسمبر 2026', '23 نوفمبر 2026']],
+  ['قبل يوم 23', '2026-11-05T10:00:00+04:00', ['18 يوماً متبقياً', '23 نوفمبر 2026', '| 18 يوم للراتب']],
+  ['يوم 23', '2026-11-23T08:00:00+04:00', ['اليوم موعد الراتب', '| 0 اليوم']],
+  ['بعد يوم 23 (مثال الطلب)', '2026-11-25T10:00:00+04:00', ['28 يوماً متبقياً', '23 ديسمبر 2026', '| 28 يوم للراتب']],
   ['نوفمبر إلى ديسمبر', '2026-11-30T22:00:00+04:00', ['23 يوماً متبقياً', '23 ديسمبر 2026']],
-  ['ديسمبر إلى يناير', '2026-12-24T09:00:00+04:00', ['30 يوماً متبقياً', '23 يناير 2027', '23 ديسمبر 2026']],
+  ['ديسمبر إلى يناير', '2026-12-24T09:00:00+04:00', ['30 يوماً متبقياً', '23 يناير 2027']],
   ['يوم واحد', '2027-01-22T09:00:00+04:00', ['يوم واحد متبقٍ']],
   ['يومان', '2027-01-21T09:00:00+04:00', ['يومان متبقيان']],
-  ['فبراير في سنة كبيسة', '2028-02-24T09:00:00+04:00', ['28 يوماً متبقياً', '23 مارس 2028', '23 فبراير 2028']],
+  ['فبراير في سنة كبيسة', '2028-02-24T09:00:00+04:00', ['28 يوماً متبقياً', '23 مارس 2028']],
 ];
 for (const [name, time, exp] of cases) {
   const q = await open({ time });
@@ -153,13 +153,14 @@ q = await open({ time: '2026-11-25T10:00:00+04:00' });
 await q.getByRole('navigation').getByText('الأدوات', { exact: true }).click(); await q.clock.runFor(200);
 await q.getByRole('button', { name: /إعدادات الراتب والمظهر/ }).click(); await q.clock.runFor(200);
 check('حقل «يوم صرف الراتب» بقيمة 23', (await q.locator('#set-pay-day').inputValue()) === '23');
-await q.fill('#set-pay-day', '31'); await q.getByRole('button', { name: 'حفظ', exact: true }).click(); await q.clock.runFor(200);
+await q.fill('#set-pay-day', '31'); await q.getByRole('button', { name: 'حفظ', exact: true }).first().click(); await q.clock.runFor(200);
 await q.getByRole('navigation').getByText('الرئيسية', { exact: true }).click(); await q.clock.runFor(200);
 check('يوم 31 في نوفمبر = آخر يوم (30 نوفمبر)', (await countdown(q)).includes('30 نوفمبر 2026') && (await countdown(q)).includes('5 أيام متبقية'));
-await q.getByRole('button', { name: 'يوم صرف الراتب' }).click(); await q.clock.runFor(300);
-await q.fill('#pay-day', '0'); await q.getByRole('button', { name: 'حفظ', exact: true }).click();
+await q.getByRole('navigation').getByText('الأدوات', { exact: true }).click(); await q.clock.runFor(200);
+await q.fill('#set-pay-day', '0'); await q.getByRole('button', { name: 'حفظ', exact: true }).first().click();
 check('رفض يوم غير صالح', await q.getByText('أدخل يوماً بين 1 و31.').isVisible());
-await q.fill('#pay-day', '1'); await q.getByRole('button', { name: 'حفظ', exact: true }).click(); await q.clock.runFor(200);
+await q.fill('#set-pay-day', '1'); await q.getByRole('button', { name: 'حفظ', exact: true }).first().click(); await q.clock.runFor(200);
+await q.getByRole('navigation').getByText('الرئيسية', { exact: true }).click(); await q.clock.runFor(200);
 check('يوم صرف مخصص (1) يُحفظ ويُطبَّق', (await store(q)).settings.payDay === 1 && (await countdown(q)).includes('1 ديسمبر 2026'));
 await q.context().close();
 q = await open({ offline: true });

@@ -62,6 +62,8 @@ const numFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximu
 const intFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 export const fmt = (n) => numFmt.format(round3(n));
 export const fmtShort = (n) => intFmt.format(round3(n));
+const fmt3Fmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+export const fmt3 = (n) => fmt3Fmt.format(round3(n));
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -136,9 +138,11 @@ export function normalizeSettings(x) {
   const s = x && typeof x === 'object' ? x : {};
   const cc = s.cardColors && typeof s.cardColors === 'object' ? s.cardColors : {};
   const day = Number(s.payDay);
+  const lim = Number(s.spendLimit);
   return {
     cardColors: { salary: typeof cc.salary === 'string' ? cc.salary : null, balance: typeof cc.balance === 'string' ? cc.balance : null },
     payDay: Number.isInteger(day) && day >= 1 && day <= 31 ? day : 23,
+    spendLimit: Number.isFinite(lim) && lim > 0 ? Math.round(lim * 1000) / 1000 : 650,
     sortModes: s.sortModes && typeof s.sortModes === 'object' ? { ...s.sortModes } : {},
   };
 }

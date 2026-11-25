@@ -27,7 +27,7 @@ test('أنماط الترتيب الأخرى واليدوي', () => {
 });
 
 test('إعدادات افتراضية متوافقة مع البيانات القديمة', () => {
-  assert.deepEqual(normalizeSettings(undefined), { cardColors: { salary: null, balance: null }, payDay: 23, sortModes: {} });
+  assert.deepEqual(normalizeSettings(undefined), { cardColors: { salary: null, balance: null }, payDay: 23, spendLimit: 650, sortModes: {} });
   assert.equal(normalizeSettings({ payDay: 40 }).payDay, 23);
   assert.equal(normalizeSettings({ payDay: 5, cardColors: { salary: '#245B91' } }).cardColors.salary, '#245B91');
   const s = normalizeSettings({ payDay: 5, sortModes: { daily: 'manual' } });

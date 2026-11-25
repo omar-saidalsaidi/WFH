@@ -3,16 +3,17 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   TrendingUp, TrendingDown, BellRing, CircleAlert, CalendarClock, HandCoins, Target, FlaskConical, DatabaseBackup,
   FileSpreadsheet, FileText, ChevronLeft, ArrowRight, Plus, Pencil, Trash2, Download, Upload, Check, RotateCcw,
-  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2,
+  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2, Wallet,
 } from 'lucide-react';
 import { fmt, fmtShort, dateLabel, todayISO, uid, listSnapshots, saveSnapshot } from './data.js';
 import {
-  r3, monthSummary, debtStatus, goalStatus, annualSeries, compareScenario, periodOf, addMonths,
+  DEFAULT_SPEND_LIMIT, r3, monthSummary, debtStatus, goalStatus, annualSeries, compareScenario, periodOf, addMonths,
 } from './finance.js';
 import { makeBackup, validateBackup } from './backup.js';
 import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 import { Card, Money, Sheet, Field, PrimaryButton, Progress, pctText, useMeta, TONE } from './ui.jsx';
 import { SpendingBehavior } from './insightsView.jsx';
+import { SalaryIncomeManager } from './incomeView.jsx';
 
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmtShort(Math.abs(v))}`;
 const monthName = (label) => label.replace(/^راتب شهر /, '');
@@ -209,7 +210,8 @@ function Stat({ k, v, sub, tone, signed: sg }) {
 
 // ================= تبويب الأدوات =================
 const TOOLS = [
-  { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب وألوان البطاقتين الرئيسيتين', icon: Settings2 },
+  { id: 'income', title: 'إدارة الراتب والدخل', sub: 'الراتب الأساسي والدخل الإضافي للشهر المفتوح', icon: Wallet },
+  { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب، حد التنبيه للمصروف، وألوان البطاقتين', icon: Settings2 },
   { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb },
   { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
   { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
@@ -246,6 +248,7 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
         <button onClick={() => setView(null)} aria-label="رجوع للأدوات" className="grid h-10 w-10 place-items-center rounded-xl bg-surface2"><ArrowRight size={19} /></button>
         <h1 className="text-xl font-extrabold">{tool.title}</h1>
       </div>
+      {view === 'income' && <SalaryIncomeManager month={month} act={act} notify={notify} />}
       {view === 'settings' && <SalarySettings store={store} act={act} notify={notify} />}
       {view === 'behavior' && <SpendingBehavior store={store} act={act} notify={notify} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
@@ -696,6 +699,15 @@ function SalarySettings({ store, act, notify }) {
   const st = store.settings;
   const [day, setDay] = useState(String(st.payDay));
   const [err, setErr] = useState('');
+  const [lim, setLim] = useState(String(st.spendLimit));
+  const [limErr, setLimErr] = useState('');
+  const saveLim = () => {
+    const n = parseFloat(lim);
+    if (isNaN(n) || n <= 0) return setLimErr('أدخل مبلغاً أكبر من صفر.');
+    const v = Math.round(n * 1000) / 1000;
+    act.setSettings({ spendLimit: v }); setLim(String(v)); setLimErr(''); notify(`حد التنبيه للمصروف الفعلي: ${v.toFixed(3)} ر.ع`);
+  };
+  const resetLim = () => { act.setSettings({ spendLimit: DEFAULT_SPEND_LIMIT }); setLim(String(DEFAULT_SPEND_LIMIT)); setLimErr(''); notify('استُعيد حد التنبيه الافتراضي (650 ر.ع)'); };
   const save = () => {
     const n = Number(day);
     if (!Number.isInteger(n) || n < 1 || n > 31) return setErr('أدخل يوماً بين 1 و31.');
@@ -712,6 +724,19 @@ function SalarySettings({ store, act, notify }) {
           </div>
         </Field>
         {err && <p className="text-sm font-bold text-bad" role="alert">{err}</p>}
+      </Card>
+      <Card className="flex flex-col gap-3 p-4">
+        <Field label="حد التنبيه للمصروف الفعلي" htmlFor="set-spend-limit" hint="تنبيه بصري فقط عند تجاوز إجمالي المصروف الفعلي لهذا المبلغ في الشهر المعروض. مستقل عن الراتب والدخل الإضافي، ولا يمنع تسجيل أي مصروف. الافتراضي 650 ر.ع.">
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <input id="set-spend-limit" type="number" inputMode="decimal" min="0" step="0.001" value={lim} onChange={(e) => { setLim(e.target.value); setLimErr(''); }} className="input num pe-4 ps-12 text-lg font-bold" />
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted">ر.ع</span>
+            </div>
+            <button type="button" onClick={saveLim} className="h-12 shrink-0 rounded-2xl bg-accent px-5 font-bold text-white">حفظ</button>
+          </div>
+        </Field>
+        {limErr && <p className="text-sm font-bold text-bad" role="alert">{limErr}</p>}
+        {st.spendLimit !== DEFAULT_SPEND_LIMIT && <button type="button" onClick={resetLim} className="h-10 rounded-xl border border-line text-sm font-bold text-accent">استعادة الحد الافتراضي (650 ر.ع)</button>}
       </Card>
       <Card className="flex flex-col gap-2 p-4">
         <p className="font-extrabold">ألوان البطاقتين الرئيسيتين</p>

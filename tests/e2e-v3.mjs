@@ -105,12 +105,12 @@ check('النسبة المتبقية', 'تحديث فوري بعد حذف الع
 await p.screenshot({ path: `${OUT}/v3-home.png`, fullPage: true });
 
 console.log('3) الدخل الإضافي');
-await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).click(); await p.fill('#salary-input', '760.125'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
+await p.getByRole('button', { name: 'إدارة ←' }).click(); await p.waitForTimeout(300);
+await p.fill('#salary-input', '760.125'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
 check('الدخل', 'تعديل الراتب الأساسي بثلاث منازل', month(await store(p), 'cur').salary === 760.125);
-await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).click(); await p.fill('#salary-input', '760'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
-await p.getByRole('button', { name: 'إدارة الدخل الإضافي' }).click(); await p.waitForTimeout(300);
+await p.fill('#salary-input', '760'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
 const add = async (name, amount, opts = {}) => {
-  if (opts.pill) await p.getByRole('dialog').getByRole('button', { name, exact: true }).click(); else await p.fill('#inc-name', name);
+  if (opts.pill) await p.getByLabel('أسماء مقترحة').getByRole('button', { name, exact: true }).click(); else await p.fill('#inc-name', name);
   await p.fill('#inc-amount', amount);
   if (opts.note) await p.fill('#inc-note', opts.note);
   if (opts.recurring) await p.locator('#inc-rec').check();
@@ -122,7 +122,7 @@ await add('مبلغ مسترد', '0.125');
 s = await store(p);
 check('الدخل', 'ثلاث مدخلات محفوظة في الشهر الحالي فقط', month(s, 'cur').incomes.length === 3 && month(s, 'prev').incomes.length === 0);
 check('الدخل', 'الراتب الأساسي لم يتغير', month(s, 'cur').salary === 760);
-check('الدخل', 'الإجمالي 150.125 بثلاث منازل', (await p.getByRole('dialog').innerText()).includes('150.125'));
+check('الدخل', 'الإجمالي 150.125 بثلاث منازل', (await p.locator('main').innerText()).includes('150.125'));
 // تعديل ثم حذف
 await p.getByRole('button', { name: 'تعديل مبلغ مسترد' }).click(); await p.fill('#inc-amount', '0.375'); await p.getByRole('button', { name: 'حفظ التعديل' }).click(); await p.waitForTimeout(120);
 check('الدخل', 'تعديل مدخل', month(await store(p), 'cur').incomes.find((i) => i.name === 'مبلغ مسترد').amount === 0.375);
@@ -131,7 +131,7 @@ check('الدخل', 'حذف مدخل', month(await store(p), 'cur').incomes.leng
 await p.fill('#inc-name', 'خطأ'); await p.fill('#inc-amount', '-5'); await p.getByRole('button', { name: 'إضافة الدخل' }).click();
 check('الدخل', 'رفض مبلغ غير صالح', await p.getByText('أدخل مبلغاً أكبر من صفر.').isVisible() && month(await store(p), 'cur').incomes.length === 2);
 await p.screenshot({ path: `${OUT}/v3-income.png` });
-await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+await p.getByRole('navigation').getByText('الرئيسية', { exact: true }).click(); await p.waitForTimeout(200);
 let h = await hero(p);
 // 760 + 150 = 910 − 297.5 = 612.5
 check('الدخل', 'إجمالي الدخل 910 والرصيد 612.5', h.includes('إجمالي الدخل 910') && h.includes('612.50'), h);

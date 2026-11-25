@@ -1,9 +1,7 @@
-// بطاقة «الراتب القادم»: عد تنازلي بالأيام التقويمية بتوقيت مسقط، مستقل عن الشهر المالي المعروض.
+// العد التنازلي للراتب القادم: أيام تقويمية بتوقيت مسقط، مستقل عن الشهر المالي المعروض.
 // لا يضيف عمليات ولا يغيّر أي بيانات عند بلوغ الصفر.
 import React, { useEffect, useState } from 'react';
-import { CalendarClock, Settings2, Check } from 'lucide-react';
-import { Card, Sheet, Field, PrimaryButton } from './ui.jsx';
-import { salaryCountdown, todayIn, msUntilMidnight, DEFAULT_PAY_DAY } from './schedule.js';
+import { salaryCountdown, todayIn, msUntilMidnight } from './schedule.js';
 
 const dateFmt = new Intl.DateTimeFormat('ar-u-nu-latn', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 export const arDate = ({ y, m, d }) => dateFmt.format(new Date(Date.UTC(y, m - 1, d)));
@@ -37,44 +35,15 @@ export function useMuscatToday() {
   return today;
 }
 
-export function SalaryCountdown({ payDay, onSettings }) {
+// صندوق مضغوط في الترويسة: عدد الأيام المتبقية فقط (يعيد استخدام منطق schedule.js)
+export function HeaderCountdown({ payDay }) {
   const today = useMuscatToday();
   const c = salaryCountdown(today, payDay);
   return (
-    <Card className="countdown-card p-3.5" aria-label="الراتب القادم">
-      <div className="flex items-center gap-3">
-        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${c.isToday ? 'bg-good/15 text-good' : 'bg-hp1 text-hpink'}`}><CalendarClock size={21} /></span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold text-muted">الراتب القادم</p>
-          <p className={`text-xl font-extrabold leading-tight ${c.isToday ? 'text-good' : 'text-ink'}`}>
-            {c.isToday ? 'اليوم موعد الراتب' : c.daysLeft <= 2 ? daysText(c.daysLeft) : <><span className="num">{c.daysLeft}</span> {daysText(c.daysLeft).replace(/^\d+ /, '')}</>}
-          </p>
-        </div>
-        <button onClick={onSettings} aria-label="يوم صرف الراتب" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted"><Settings2 size={16} /></button>
-      </div>
-      <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(c.progress * 100)} aria-label="التقدم في دورة الراتب الحالية">
-        <div className="h-2 rounded-full bg-hpink/70" style={{ width: `${c.progress * 100}%` }} />
-      </div>
-      <dl className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-        <div><dt className="text-muted">موعد الراتب القادم</dt><dd className="num font-bold text-ink">{arDate(c.next)}</dd></div>
-        <div><dt className="text-muted">آخر موعد راتب مجدول</dt><dd className="num font-bold text-ink">{arDate(c.prev)}</dd></div>
-      </dl>
-      <p className="mt-1.5 text-[10px] text-muted">موعد مجدول (يوم {c.payDay} بتوقيت مسقط)، وليس تأكيداً لإيداع الراتب.</p>
-    </Card>
-  );
-}
-
-export function PayDaySheet({ value, onSave, onClose }) {
-  const [v, setV] = useState(String(value || DEFAULT_PAY_DAY));
-  const [err, setErr] = useState('');
-  return (
-    <Sheet title="يوم صرف الراتب" onClose={onClose}
-      onSubmit={() => { const n = Number(v); if (!Number.isInteger(n) || n < 1 || n > 31) return setErr('أدخل يوماً بين 1 و31.'); onSave(n); }}
-      footer={<>{err && <p className="text-sm font-bold text-bad" role="alert">{err}</p>}<PrimaryButton type="submit"><Check size={20} />حفظ</PrimaryButton></>}>
-      <Field label="يوم صرف الراتب" htmlFor="pay-day" hint="إن لم يوجد هذا اليوم في شهر ما (مثل 31 في نوفمبر)، يُستخدم آخر يوم في ذلك الشهر. الافتراضي 23.">
-        <input id="pay-day" type="number" inputMode="numeric" min="1" max="31" value={v} onChange={(e) => { setV(e.target.value); setErr(''); }} className="input num text-lg font-bold" />
-      </Field>
-      <p className="text-xs text-muted">يُستخدم للعد التنازلي فقط، ولا يضيف أي عملية أو يغيّر البيانات المالية.</p>
-    </Sheet>
+    <div className="header-countdown flex h-11 min-w-[48px] shrink-0 flex-col items-center justify-center rounded-xl border border-hpb bg-hp1 px-1.5 text-hpink"
+      role="status" aria-label={c.isToday ? 'اليوم موعد الراتب' : `${daysText(c.daysLeft)} حتى الراتب القادم في ${arDate(c.next)}`} title={`الراتب القادم: ${arDate(c.next)}`}>
+      <span className="num text-lg font-extrabold leading-none">{c.daysLeft}</span>
+      <span className="mt-0.5 whitespace-nowrap text-[9px] font-bold leading-none">{c.isToday ? 'اليوم' : 'يوم للراتب'}</span>
+    </div>
   );
 }
