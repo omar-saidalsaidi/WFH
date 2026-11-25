@@ -5,34 +5,29 @@ import { Check, Pencil, Trash2, Repeat, Plus } from 'lucide-react';
 import { Field, PrimaryButton, Card } from './ui.jsx';
 import { fmt, fmtShort, dateLabel, todayISO, uid } from './data.js';
 import { sumOMR, toBaisa } from './finance.js';
+import { SalaryCard } from './salaryCard.jsx';
+import { ColorPicker } from './colorView.jsx';
 
 const SUGGESTED = ['مكافأة', 'بدل سفر', 'عمل إضافي', 'عائد استثمار', 'دخل جانبي', 'مبلغ مسترد', 'مبلغ آخر'];
 const monthName = (l) => (l || '').replace(/^راتب شهر /, '');
 
-export function SalaryIncomeManager({ month, act, notify }) {
+export function SalaryIncomeManager({ month, store, act, notify }) {
+  const [picker, setPicker] = useState(false);
   const list = [...(month.incomes || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
   const extra = sumOMR(list, (i) => i.amount);
   const total = (toBaisa(month.salary) + toBaisa(extra)) / 1000;
   return (
     <>
       <p className="-mt-2 text-sm text-muted">للشهر المالي المفتوح: <b className="text-ink">{monthName(month.label)}</b>. لكل شهر راتبه ودخله المستقل؛ لتعديل شهر آخر افتحه من اسم الشهر أعلى الصفحة.</p>
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Tot k="الراتب الأساسي" v={month.salary} />
-        <Tot k="إجمالي الدخل الإضافي" v={extra} />
-        <Tot k="إجمالي الدخل" v={total} strong />
-      </div>
+      <SalaryCard salary={month.salary} extra={extra} total={total} count={list.length} color={store.settings.cardColors.salary} onColor={() => setPicker(true)} />
+      {picker && (
+        <ColorPicker store={store} notify={notify} onClose={() => setPicker(false)}
+          target={{ kind: 'summary', id: 'salary', name: 'بطاقة الراتب الأساسي', color: store.settings.cardColors.salary }}
+          onApply={(color) => { act.setSettings({ cardColors: { ...store.settings.cardColors, salary: color } }); notify(color ? 'تم تطبيق اللون على كل الأشهر' : 'استُعيد اللون الافتراضي'); }} />
+      )}
       <SalaryEditor key={`${month.id}-${month.salary}`} month={month} act={act} notify={notify} />
       <IncomeManager key={month.id} month={month} list={list} total={extra} act={act} notify={notify} />
     </>
-  );
-}
-
-function Tot({ k, v, strong }) {
-  return (
-    <div className={`rounded-2xl border px-1 py-2.5 ${strong ? 'border-hpb bg-hp1 text-hpink' : 'border-line bg-surface'}`}>
-      <p className="text-[10px] font-bold opacity-80">{k}</p>
-      <p className="num text-lg font-extrabold">{fmtShort(v)}</p>
-    </div>
   );
 }
 

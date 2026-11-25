@@ -1,5 +1,5 @@
 // تصدير الملفات: Excel، ومشاركة/تنزيل أي ملف على الآيفون
-import * as XLSX from 'xlsx';
+import { loadDeferred } from './deferred.js';
 import { monthSummary, annualSeries, pctLabel } from './finance.js';
 
 // مشاركة الملف عبر قائمة المشاركة في iOS، أو تنزيله مباشرة
@@ -19,6 +19,7 @@ export async function shareOrDownload(blob, fileName, title) {
 }
 
 const pct = (x) => (x == null ? '' : Math.round(x * 1000) / 10);
+let XLSX = null; // تُحمَّل عند أول تصدير
 const sheet = (rows, widths) => {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = widths.map((w) => ({ wch: w }));
@@ -27,7 +28,8 @@ const sheet = (rows, widths) => {
 const book = () => { const wb = XLSX.utils.book_new(); wb.Workbook = { Views: [{ RTL: true }] }; return wb; };
 const toBlob = (wb) => new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-export function monthWorkbook(month, cardName, sectionName, today) {
+export async function monthWorkbook(month, cardName, sectionName, today) {
+  XLSX = await loadDeferred('xlsx');
   const s = monthSummary(month, today);
   const wb = book();
   XLSX.utils.book_append_sheet(wb, sheet([
@@ -67,7 +69,8 @@ export function monthWorkbook(month, cardName, sectionName, today) {
   return toBlob(wb);
 }
 
-export function annualWorkbook(store, endPeriod) {
+export async function annualWorkbook(store, endPeriod) {
+  XLSX = await loadDeferred('xlsx');
   const a = annualSeries(store, endPeriod);
   const wb = book();
   const rows = [['الفترة', 'الشهر', 'الراتب الأساسي', 'الدخل الإضافي', 'المخطط', 'المدفوع', 'الفائض/العجز', 'الادخار']];

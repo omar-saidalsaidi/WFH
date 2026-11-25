@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   TrendingUp, TrendingDown, BellRing, CircleAlert, CalendarClock, HandCoins, Target, FlaskConical, DatabaseBackup,
   FileSpreadsheet, FileText, ChevronLeft, ArrowRight, Plus, Pencil, Trash2, Download, Upload, Check, RotateCcw,
-  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2, Wallet,
+  ShieldCheck, Copy, LoaderCircle, Lightbulb, Settings2, Wallet, PiggyBank, Calculator,
 } from 'lucide-react';
 import { fmt, fmtShort, dateLabel, todayISO, uid, listSnapshots, saveSnapshot } from './data.js';
 import {
@@ -12,7 +12,8 @@ import {
 import { makeBackup, validateBackup } from './backup.js';
 import { monthWorkbook, annualWorkbook, shareOrDownload } from './exporters.js';
 import { Card, Money, Sheet, Field, PrimaryButton, Progress, pctText, useMeta, TONE } from './ui.jsx';
-import { SpendingBehavior } from './insightsView.jsx';
+import { SpendingBehavior, SimulatorTool } from './insightsView.jsx';
+import { SavingsManager } from './savingsView.jsx';
 import { SalaryIncomeManager } from './incomeView.jsx';
 
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmtShort(Math.abs(v))}`;
@@ -209,16 +210,22 @@ function Stat({ k, v, sub, tone, signed: sg }) {
 }
 
 // ================= تبويب الأدوات =================
-const TOOLS = [
-  { id: 'income', title: 'إدارة الراتب والدخل', sub: 'الراتب الأساسي والدخل الإضافي للشهر المفتوح', icon: Wallet },
-  { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب، حد التنبيه للمصروف، وألوان البطاقتين', icon: Settings2 },
-  { id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb },
-  { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
-  { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
-  { id: 'scenario', title: 'محاكاة السيناريوهات', sub: 'جرّب تغييرات دون المساس ببياناتك', icon: FlaskConical },
-  { id: 'reports', title: 'التقارير: PDF و Excel', sub: 'شهري وسنوي: المخطط والفعلي والرصيد', icon: FileSpreadsheet },
-  { id: 'backup', title: 'النسخ الاحتياطي والاستعادة', sub: 'تصدير واستيراد كل الأشهر بصيغة JSON', icon: DatabaseBackup },
+// مجموعات صفحة الأدوات بالترتيب المطلوب؛ كل أداة تُحمَّل وتُحسب فقط عند فتحها
+const TOOL_GROUPS = [
+  { title: 'إدارة الراتب والدخل', tools: [{ id: 'income', title: 'إدارة الراتب والدخل', sub: 'بطاقة الراتب، الراتب الأساسي والدخل الإضافي', icon: Wallet }] },
+  { title: 'إدارة الادخار', tools: [{ id: 'savings', title: 'إدارة الادخار', sub: 'بطاقة الادخار: المخصص والفعلي والمتبقي', icon: PiggyBank }] },
+  { title: 'تحليل سلوك الإنفاق', tools: [{ id: 'behavior', title: 'تحليل سلوك الإنفاق', sub: 'مساعدك الذكي لتحسين إدارة المصروفات والادخار', icon: Lightbulb }] },
+  { title: 'محاكي التوفير', tools: [{ id: 'simulator', title: 'محاكي التوفير', sub: 'أثر خفض المصروفات المرنة بنسبة أو مبلغ', icon: Calculator }] },
+  { title: 'الإعدادات والأدوات الحالية', tools: [
+    { id: 'settings', title: 'إعدادات الراتب والمظهر', sub: 'يوم صرف الراتب، حد التنبيه للمصروف، وألوان البطاقات', icon: Settings2 },
+    { id: 'debts', title: 'الديون والالتزامات', sub: 'الرصيد المتبقي والأقساط وتاريخ الانتهاء', icon: HandCoins },
+    { id: 'goals', title: 'أهداف الادخار', sub: 'نسبة الإنجاز والمطلوب شهرياً', icon: Target },
+    { id: 'scenario', title: 'محاكاة السيناريوهات', sub: 'جرّب تغييرات دون المساس ببياناتك', icon: FlaskConical },
+    { id: 'reports', title: 'التقارير: PDF و Excel', sub: 'شهري وسنوي: المخطط والفعلي والرصيد', icon: FileSpreadsheet },
+    { id: 'backup', title: 'النسخ الاحتياطي والاستعادة', sub: 'تصدير واستيراد كل الأشهر بصيغة JSON', icon: DatabaseBackup },
+  ] },
 ];
+const TOOLS = TOOL_GROUPS.flatMap((g) => g.tools);
 
 export function ToolsTab({ store, month, act, notify, openReport, view, setView }) {
   const tool = TOOLS.find((t) => t.id === view);
@@ -226,19 +233,24 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
     return (
       <div className="flex flex-col gap-4 fade-in">
         <div><h1 className="text-2xl font-extrabold">الأدوات</h1><p className="text-sm text-muted">تخطيط ومتابعة طويلة المدى</p></div>
-        <Card>
-          <ul className="divide-y divide-line">
-            {TOOLS.map(({ id, title, sub, icon: Icon }) => (
-              <li key={id}>
-                <button onClick={() => setView(id)} className="flex w-full items-center gap-3 px-4 py-3.5 text-right">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Icon size={19} /></span>
-                  <span className="min-w-0 flex-1"><span className="block font-bold">{title}</span><span className="block text-xs text-muted">{sub}</span></span>
-                  <ChevronLeft size={18} className="text-muted" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        {TOOL_GROUPS.map((g, gi) => (
+          <section key={g.title} className="flex flex-col gap-1.5" aria-label={g.title}>
+            {g.tools.length > 1 && <h2 className="px-1 text-xs font-extrabold text-muted"><span className="num">{gi + 1}.</span> {g.title}</h2>}
+            <Card>
+              <ul className="divide-y divide-line">
+                {g.tools.map(({ id, title, sub, icon: Icon }) => (
+                  <li key={id}>
+                    <button onClick={() => setView(id)} className="flex w-full items-center gap-3 px-4 py-3.5 text-right">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Icon size={19} /></span>
+                      <span className="min-w-0 flex-1"><span className="block font-bold">{g.tools.length > 1 ? '' : <span className="num text-muted">{gi + 1}. </span>}{title}</span><span className="block text-xs text-muted">{sub}</span></span>
+                      <ChevronLeft size={18} className="text-muted" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
+        ))}
       </div>
     );
   }
@@ -248,7 +260,9 @@ export function ToolsTab({ store, month, act, notify, openReport, view, setView 
         <button onClick={() => setView(null)} aria-label="رجوع للأدوات" className="grid h-10 w-10 place-items-center rounded-xl bg-surface2"><ArrowRight size={19} /></button>
         <h1 className="text-xl font-extrabold">{tool.title}</h1>
       </div>
-      {view === 'income' && <SalaryIncomeManager month={month} act={act} notify={notify} />}
+      {view === 'income' && <SalaryIncomeManager month={month} store={store} act={act} notify={notify} />}
+      {view === 'savings' && <SavingsManager month={month} store={store} act={act} notify={notify} />}
+      {view === 'simulator' && <SimulatorTool store={store} act={act} notify={notify} />}
       {view === 'settings' && <SalarySettings store={store} act={act} notify={notify} />}
       {view === 'behavior' && <SpendingBehavior store={store} act={act} notify={notify} />}
       {view === 'debts' && <Debts store={store} month={month} act={act} notify={notify} />}
@@ -567,8 +581,8 @@ function Reports({ store, month, openReport, notify }) {
   const items = [
     { k: 'pdf-m', icon: FileText, t: 'تقرير PDF شهري', s: `${monthName(month.label)}: المخطط والفعلي والرصيد والرسوم`, on: () => openReport('month') },
     { k: 'pdf-y', icon: FileText, t: 'تقرير PDF سنوي', s: `آخر 12 شهراً حتى ${end}`, on: () => openReport('year') },
-    { k: 'xl-m', icon: FileSpreadsheet, t: 'ملف Excel شهري', s: 'الملخص، المخطط والفعلي، العمليات', on: () => run('xl-m', () => shareOrDownload(monthWorkbook(month, cardName, sectionName, todayISO()), `salary-${month.period}.xlsx`, month.label)) },
-    { k: 'xl-y', icon: FileSpreadsheet, t: 'ملف Excel سنوي', s: 'مقارنة 12 شهراً وأكثر البنود', on: () => run('xl-y', () => shareOrDownload(annualWorkbook(store, end), `salary-year-${end}.xlsx`, 'التقرير السنوي')) },
+    { k: 'xl-m', icon: FileSpreadsheet, t: 'ملف Excel شهري', s: 'الملخص، المخطط والفعلي، العمليات', on: () => run('xl-m', async () => shareOrDownload(await monthWorkbook(month, cardName, sectionName, todayISO()), `salary-${month.period}.xlsx`, month.label)) },
+    { k: 'xl-y', icon: FileSpreadsheet, t: 'ملف Excel سنوي', s: 'مقارنة 12 شهراً وأكثر البنود', on: () => run('xl-y', async () => shareOrDownload(await annualWorkbook(store, end), `salary-year-${end}.xlsx`, 'التقرير السنوي')) },
   ];
   return (
     <Card>

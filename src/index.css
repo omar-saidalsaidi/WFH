@@ -72,6 +72,8 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .toast-in { animation: rise .25s ease-out both; }
 .sheet-in { animation: sheet .28s cubic-bezier(.2,.9,.3,1) both; }
 .backdrop-in { animation: fadeonly .2s ease-out both; }
+.curtain-in { animation: curtain .16s ease-out; }
+@keyframes curtain { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: .3; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes fadeonly { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

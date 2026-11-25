@@ -105,7 +105,8 @@ check('النسبة المتبقية', 'تحديث فوري بعد حذف الع
 await p.screenshot({ path: `${OUT}/v3-home.png`, fullPage: true });
 
 console.log('3) الدخل الإضافي');
-await p.getByRole('button', { name: 'إدارة ←' }).click(); await p.waitForTimeout(300);
+await p.getByRole('navigation').getByText('الأدوات', { exact: true }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: /إدارة الراتب والدخل/ }).click(); await p.waitForTimeout(300);
 await p.fill('#salary-input', '760.125'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
 check('الدخل', 'تعديل الراتب الأساسي بثلاث منازل', month(await store(p), 'cur').salary === 760.125);
 await p.fill('#salary-input', '760'); await p.getByRole('button', { name: 'حفظ الراتب' }).click(); await p.waitForTimeout(150);
@@ -312,14 +313,14 @@ await p.keyboard.press('Escape');
 
 console.log('10) الوضع الداكن وعدم الاتصال');
 const dk = await open('dark', { ...v5, months: [mk('cur', P, curTx, { categories: cats.map((c) => (c.id === 'fuel' ? { ...c, color: '#EDE4FF' } : c)) })] });
-const dcard = await dk.p.locator('.salary-card').evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage, c: getComputedStyle(el).color, border: getComputedStyle(el).borderColor }));
+const dcard = await dk.p.locator('.balance-card').evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage, c: getComputedStyle(el).color, border: getComputedStyle(el).borderColor }));
 check('الواجهة', 'بطاقة الراتب البنفسجية في الوضع الداكن', dcard.bg.includes('rgb(43, 35, 66)') && dcard.c === 'rgb(230, 219, 255)', JSON.stringify(dcard));
 const dfuel = await dk.p.getByRole('button', { name: 'تسجيل مصروف على بنزين السيارة' }).locator('xpath=..').evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, ink: getComputedStyle(el.querySelector('span.block')).color }));
 check('الواجهة', 'اللون الفاتح يُكيَّف للوضع الداكن بنص فاتح', dfuel.bg !== 'rgb(237, 228, 255)' && dfuel.ink === 'rgb(248, 250, 252)', JSON.stringify(dfuel));
 await noHScroll(dk.p, 'الوضع الداكن');
 await dk.p.screenshot({ path: `${OUT}/v3-dark.png`, fullPage: true });
 const lightLight = await open('light', v5);
-const lcard = await lightLight.p.locator('.salary-card').evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage, c: getComputedStyle(el).color, border: getComputedStyle(el).borderColor }));
+const lcard = await lightLight.p.locator('.balance-card').evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage, c: getComputedStyle(el).color, border: getComputedStyle(el).borderColor }));
 check('الواجهة', 'بطاقة الراتب: #F0E8FF → #EDE4FF، نص #4C347C، إطار #CBB7F0', lcard.bg.includes('rgb(240, 232, 255)') && lcard.bg.includes('rgb(237, 228, 255)') && lcard.c === 'rgb(76, 52, 124)' && lcard.border === 'rgb(203, 183, 240)', JSON.stringify(lcard));
 // عدم الاتصال: حظر كل الطلبات الخارجية
 const off = await open('light', v5, { offline: true });

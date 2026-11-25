@@ -36,8 +36,7 @@ export function useMuscatToday() {
 }
 
 // صندوق مضغوط في الترويسة: عدد الأيام المتبقية فقط (يعيد استخدام منطق schedule.js)
-export function HeaderCountdown({ payDay }) {
-  const today = useMuscatToday();
+export function HeaderCountdown({ payDay, today }) {
   const c = salaryCountdown(today, payDay);
   return (
     <div className="header-countdown flex h-11 min-w-[48px] shrink-0 flex-col items-center justify-center rounded-xl border border-hpb bg-hp1 px-1.5 text-hpink"

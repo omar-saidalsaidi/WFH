@@ -60,7 +60,15 @@ const rgbOf = (s) => { const m = s.match(/\d+(\.\d+)?/g).map(Number); return `#$
 section('1) ألوان البطاقتين الرئيسيتين');
 let p = await open();
 const cardCss = (sel) => p.locator(sel).evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage, bgc: getComputedStyle(el).backgroundColor, ink: getComputedStyle(el).color }));
-let bal = await cardCss('.balance-card'), sal = await cardCss('.salary-card');
+// بطاقة الراتب في الأدوات ← إدارة الراتب والدخل (الإصدار 3.3)
+const toIncome = async (pg) => {
+  await pg.getByRole('navigation').getByText('الأدوات', { exact: true }).click(); await pg.clock.runFor(200);
+  if (await pg.getByRole('button', { name: 'رجوع للأدوات' }).count()) { await pg.getByRole('button', { name: 'رجوع للأدوات' }).click(); await pg.clock.runFor(150); }
+  await pg.getByRole('button', { name: /إدارة الراتب والدخل/ }).click(); await pg.clock.runFor(250);
+};
+const toHome = async (pg) => { await pg.getByRole('navigation').getByText('الرئيسية', { exact: true }).click(); await pg.clock.runFor(200); };
+const salCss = async () => { await toIncome(p); const c = await cardCss('.salary-card'); await toHome(p); return c; };
+let bal = await cardCss('.balance-card'), sal = await salCss();
 check('الافتراضي البنفسجي الفاتح (#EDE4FF) للبطاقتين', bal.bg.includes('rgb(237, 228, 255)') && sal.bg.includes('rgb(237, 228, 255)') && bal.ink === 'rgb(76, 52, 124)');
 await p.getByRole('button', { name: 'لون بطاقة الرصيد المتبقي' }).click(); await p.clock.runFor(400);
 check('منتقي الألوان: 36 لوناً', (await p.getByRole('dialog').getByRole('radio').count()) === 36);
@@ -69,19 +77,21 @@ await p.getByRole('radio', { name: 'عنابي' }).click();
 const prev = await p.getByLabel('معاينة').evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, ink: getComputedStyle(el).color }));
 check('معاينة مباشرة بالعنابي ونص فاتح', prev.bg === 'rgb(155, 48, 48)' && prev.ink === 'rgb(248, 250, 252)', JSON.stringify(prev));
 await p.getByRole('button', { name: 'تطبيق' }).click(); await p.clock.runFor(300);
+await toIncome(p);
 await p.getByRole('button', { name: 'لون بطاقة الراتب الأساسي' }).click(); await p.clock.runFor(400);
 await p.fill('#hex-input', '#90caf9');
 await p.getByRole('button', { name: 'تطبيق' }).click(); await p.clock.runFor(300);
+await toHome(p);
 let st = await store(p);
 check('حفظ مستقل لكل بطاقة', st.settings.cardColors.balance === '#9B3030' && st.settings.cardColors.salary === '#90CAF9');
-bal = await cardCss('.balance-card'); sal = await cardCss('.salary-card');
+bal = await cardCss('.balance-card'); sal = await salCss();
 check('بطاقتان بلونين مستقلين', bal.bg.includes('rgb(155, 48, 48)') && sal.bg.includes('rgb(144, 202, 249)'), JSON.stringify({ bal, sal }));
 check('تباين النص تلقائياً (فاتح على العنابي، داكن على الأزرق)', bal.ink === 'rgb(248, 250, 252)' && sal.ink === 'rgb(30, 41, 59)');
-check('رابط إدارة الراتب والدخل ما زال متاحاً', await p.getByRole('button', { name: 'إدارة ←' }).isVisible());
+check('بطاقة الراتب غير موجودة في الصفحة الرئيسية', (await p.locator('main .salary-card').count()) === 0);
 await p.reload(); await p.clock.runFor(400);
 check('الألوان باقية بعد إعادة التشغيل', (await cardCss('.balance-card')).bg.includes('rgb(155, 48, 48)'));
 await p.getByRole('button', { name: /تغيير الشهر/ }).click(); await p.getByRole('radio', { name: /راتب شهر 2026-10/ }).click(); await p.clock.runFor(300);
-check('الألوان ثابتة عند تغيير الشهر (إعداد عام)', (await cardCss('.balance-card')).bg.includes('rgb(155, 48, 48)') && (await cardCss('.salary-card')).bg.includes('rgb(144, 202, 249)'));
+check('الألوان ثابتة عند تغيير الشهر (إعداد عام)', (await cardCss('.balance-card')).bg.includes('rgb(155, 48, 48)') && (await salCss()).bg.includes('rgb(144, 202, 249)'));
 // إظهار العجز على لون أحمر داكن: بيانات مصروفها يتجاوز الدخل
 p = await open({ data: { ...seed, settings: { cardColors: { balance: '#9B3030', salary: null }, payDay: 23, sortModes: {} }, months: [mk('cur', P, [...curTx, tx('rent', 400, `${P}-05`)])] } });
 const neg = await p.locator('.balance-card .text-bad').first().evaluate((el) => ({ c: getComputedStyle(el).color, bg: getComputedStyle(el.closest('span.inline-block') || el.parentElement).backgroundColor }));
@@ -101,6 +111,7 @@ for (const scheme of ['light', 'dark']) {
     await q.evaluate((h) => { const s = JSON.parse(localStorage.getItem('salary-tracker-omr-v4')); s.settings = { ...s.settings, cardColors: { balance: h, salary: h } }; localStorage.setItem('salary-tracker-omr-v4', JSON.stringify(s)); }, hex);
     await q.reload(); await q.clock.runFor(150);
     for (const sel of ['.balance-card', '.salary-card']) {
+      if (sel === '.salary-card') await toIncome(q); else await toHome(q);
       const c = await q.locator(sel).evaluate((el) => ({ bg: getComputedStyle(el).backgroundImage.match(/rgb\([^)]*\)/)[0], ink: getComputedStyle(el).color }));
       const r = contrast(rgbOf(c.bg), rgbOf(c.ink));
       if (r < worst) { worst = r; worstHex = hex; }

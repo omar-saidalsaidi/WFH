@@ -59,9 +59,9 @@ const noHScroll = async (p, where) => check(`بلا تمرير أفقي: ${where
 let p = await open('light', seed);
 
 console.log('1) بطاقة الراتب البنفسجية');
-const css = await p.locator('.salary-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
+const css = await p.locator('.balance-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
 check('خلفية #F0E8FF → #EDE4FF ونص #4C347C', css.bg.includes('rgb(240, 232, 255)') && css.bg.includes('rgb(237, 228, 255)') && css.color === 'rgb(76, 52, 124)', JSON.stringify(css));
-check('رابط إدارة الراتب والدخل في البطاقة', await p.getByRole('button', { name: 'إدارة ←' }).isVisible());
+check('بطاقة الراتب انتقلت إلى الأدوات (ليست في الرئيسية)', (await p.locator('main .salary-card').count()) === 0);
 await p.screenshot({ path: `${OUT}/v2-home-light.png` });
 
 console.log('2) إدارة الفئات');
@@ -153,7 +153,7 @@ await noHScroll(p, 'تحليل السلوك');
 
 console.log('5) الوضع الداكن');
 const pd = await open('dark', seed);
-const dcss = await pd.locator('.salary-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
+const dcss = await pd.locator('.balance-card').evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundImage, color: c.color }; });
 check('بطاقة الراتب داكنة بنص فاتح', dcss.bg.includes('rgb(43, 35, 66)') && dcss.color === 'rgb(230, 219, 255)', JSON.stringify(dcss));
 await pd.evaluate(() => { const s = JSON.parse(localStorage.getItem('salary-tracker-omr-v4')); s.months.find((m) => m.id === 'cur').sections[1].color = 'peach'; localStorage.setItem('salary-tracker-omr-v4', JSON.stringify(s)); });
 await pd.reload(); await pd.waitForTimeout(300);

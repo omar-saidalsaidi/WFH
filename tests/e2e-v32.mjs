@@ -54,7 +54,7 @@ section('1) إدارة الراتب والدخل في الأدوات');
 let p = await open();
 const prevAtStart = JSON.stringify(month(await store(p), 'prev'));
 check('الصفحة الرئيسية بلا أدوات تعديل الراتب والدخل', (await p.getByRole('button', { name: 'تعديل مبلغ الراتب' }).count()) === 0 && (await p.getByRole('button', { name: 'إدارة الدخل الإضافي' }).count()) === 0);
-check('بطاقتا الملخص ظاهرتان مع أدوات الألوان', await p.locator('.balance-card').isVisible() && await p.locator('.salary-card').isVisible() && await p.getByRole('button', { name: 'لون بطاقة الراتب الأساسي' }).isVisible());
+check('بطاقة الرصيد ظاهرة مع أداة لونها، وبطاقة الراتب ليست في الرئيسية', await p.locator('.balance-card').isVisible() && await p.getByRole('button', { name: 'لون بطاقة الرصيد المتبقي' }).isVisible() && (await p.locator('main .salary-card').count()) === 0);
 await nav(p, 'الأدوات');
 check('قسم «إدارة الراتب والدخل» في الأدوات', await p.getByRole('button', { name: /إدارة الراتب والدخل/ }).isVisible());
 await p.getByRole('button', { name: /إدارة الراتب والدخل/ }).click(); await p.clock.runFor(300);
@@ -73,13 +73,14 @@ check('حذف مدخل دخل', month(s, 'cur').incomes.length === 1);
 check('الراتب الأساسي مستقل ومحفوظ للشهر الحالي فقط', month(s, 'cur').salary === 800 && month(s, 'prev').salary === 760 && month(s, 'prev').incomes.length === 0);
 await nav(p, 'الرئيسية');
 let sm = await summary(p);
-check('تحديث فوري للصفحة الرئيسية (800 + 60 = 860، الرصيد 560)', sm.includes('الراتب الأساسي 800') && sm.includes('إجمالي الدخل 860') && sm.includes('560.00'), sm);
+check('تحديث فوري للصفحة الرئيسية (800 + 60 = 860، الرصيد 560)', sm.includes('إجمالي الدخل 860') && sm.includes('560.00'), sm);
 await p.getByRole('button', { name: 'تصدير / طباعة التقرير' }).click(); await p.clock.runFor(300);
 const rep = (await p.locator('article').innerText()).replace(/\s+/g, ' ').replace(/,/g, '');
 check('التقرير يعكس التعديلات فوراً', rep.includes('الراتب الأساسي 800.00') && rep.includes('إجمالي الدخل 860.00') && rep.includes('بدل سفر'));
 await p.keyboard.press('Escape'); await p.clock.runFor(200);
-await p.getByRole('button', { name: 'إدارة ←' }).click(); await p.clock.runFor(300);
-check('رابط «إدارة» في بطاقة الراتب يفتح القسم مباشرة', await p.getByRole('heading', { name: 'إدارة الراتب والدخل' }).isVisible());
+await nav(p, 'الأدوات');
+const salText = (await p.locator('.salary-card').innerText()).replace(/\s+/g, ' ');
+check('بطاقة الراتب في الأدوات تعرض القيم المحدثة', salText.includes('الراتب الأساسي 800') && salText.includes('إجمالي الدخل 860'), salText);
 await p.getByRole('button', { name: /تغيير الشهر/ }).click(); await p.getByRole('radio', { name: /راتب شهر 2026-10/ }).click(); await p.clock.runFor(300);
 check('تبديل الشهر يعرض راتب ودخل ذلك الشهر', (await p.locator('#salary-input').inputValue()) === '760' && (await p.locator('main').innerText()).includes('لا يوجد دخل إضافي لهذا الشهر'));
 check('البيانات التاريخية محفوظة', JSON.stringify(month(await store(p), 'prev')) === prevAtStart);
@@ -102,11 +103,14 @@ for (const [name, time, exp] of [
 p = await open();
 check('أُزيلت بطاقة العد التنازلي الكبيرة', (await p.locator('.countdown-card').count()) === 0 && !(await p.locator('main').innerText()).includes('آخر موعد راتب مجدول'));
 const hdr = await p.locator('header').evaluate((h) => {
-  const box = h.querySelector('.header-countdown').getBoundingClientRect();
-  const exp = [...h.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === 'تصدير / طباعة التقرير').getBoundingClientRect();
-  return { gap: Math.round(box.left - exp.right), sameRow: Math.abs(box.top - exp.top) < 2, svg: h.querySelector('.header-countdown svg') != null, bar: h.querySelector('.header-countdown [role=progressbar]') != null };
+  const r = (el) => el.getBoundingClientRect();
+  const box = r(h.querySelector('.header-countdown'));
+  const bell = r(h.querySelector('.notif-bell'));
+  const exp = r([...h.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === 'تصدير / طباعة التقرير'));
+  return { gap1: Math.round(box.left - bell.right), gap2: Math.round(bell.left - exp.right), sameRow: Math.abs(box.top - exp.top) < 2 && Math.abs(bell.top - exp.top) < 2,
+    svg: h.querySelector('.header-countdown svg') != null, bar: h.querySelector('.header-countdown [role=progressbar]') != null };
 });
-check('بجوار زر تصدير / طباعة مباشرة', hdr.sameRow && hdr.gap >= 0 && hdr.gap <= 12, JSON.stringify(hdr));
+check('بجوار الجرس وزر تصدير / طباعة (العداد ← الجرس ← التصدير)', hdr.sameRow && hdr.gap1 >= 0 && hdr.gap1 <= 12 && hdr.gap2 >= 0 && hdr.gap2 <= 12, JSON.stringify(hdr));
 check('رقم وتسمية فقط: بلا أيقونة أو شريط تقدم', !hdr.svg && !hdr.bar);
 await p.context().close();
 for (const w of [320, 375, 390, 430]) {

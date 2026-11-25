@@ -72,6 +72,9 @@ check('العمليات لم تتغير', JSON.stringify(st.months[1].transactio
 check('رصيد مرحّل افتراضي 0 وقوائم ديون وأهداف فارغة', st.months.every((m) => m.carryIn === 0) && st.debts.length === 0 && st.goals.length === 0);
 
 console.log('2) التوقع والمخطط والفعلي');
+// بطاقة التوقع انتقلت إلى الأدوات ← إدارة الادخار (الإصدار 3.3)
+await p.getByRole('navigation').getByText('الأدوات', { exact: true }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: /إدارة الادخار/ }).click(); await p.waitForTimeout(300);
 const forecastTxt = await p.locator('text=الرصيد المتوقع نهاية الشهر').first().locator('xpath=..').innerText();
 // المدفوع 254، الرصيد 506، غير المدفوع: ادخار 50 + بنزين 80 + ترفيه 6 = 136 => 370 (قد يزيد بالوتيرة إن وُجد صرف يومي)
 const expected = day >= 5 ? 370 - Math.max(0, (34 / day) * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - 40) : 370;
@@ -79,9 +82,14 @@ const shown = Number((forecastTxt.match(/-?[\d,]+\.\d+/) || ['NaN'])[0].replace(
 check('قيمة الرصيد المتوقع', Math.abs(shown - expected) < 0.002, `(${shown} / متوقع ${expected.toFixed(3)})`);
 await p.getByRole('button', { name: /كيف حُسب/ }).click();
 check('تفصيل التوقع ظاهر', await p.getByText('مخصصات والتزامات لم تُدفع بعد').isVisible());
+await p.getByRole('button', { name: 'رجوع للأدوات' }).click(); await p.waitForTimeout(150);
+await p.getByRole('navigation').getByText('الرئيسية', { exact: true }).click(); await p.waitForTimeout(200);
 const funRow = await p.getByRole('button', { name: 'تسجيل مصروف على ترفيه' }).innerText();
 check('المخصص والمصروف والمتبقي والنسبة المتبقية', /المبلغ المخصص\s*40/.test(funRow) && /المبلغ المصروف\s*34/.test(funRow) && /المبلغ المتبقي\s*6/.test(funRow) && /النسبة المتبقية\s*15٪/.test(funRow), funRow.replace(/\s+/g, ' '));
-check('تنبيه 80٪', await p.getByText(/«ترفيه» بلغ 85٪/).isVisible());
+// التنبيهات في ستارة الجرس (الإصدار 3.3)
+await p.locator('.notif-bell').click(); await p.waitForTimeout(200);
+check('تنبيه 80٪', await p.getByRole('dialog', { name: 'التنبيهات' }).getByText(/«ترفيه» قارب على النفاد/).isVisible() && await p.getByText(/صُرف 85٪ من المخصص/).isVisible());
+await p.locator('.notif-bell').click(); await p.waitForTimeout(150);
 await p.screenshot({ path: `${OUT}/home.png`, fullPage: true });
 await noHScroll('الرئيسية');
 
@@ -91,7 +99,9 @@ const due = Math.min(28, day + 1);
 await p.fill('#i-due', String(due));
 await p.getByRole('button', { name: 'حفظ التعديلات' }).click();
 await p.waitForTimeout(200);
-check('تنبيه اقتراب موعد الدفع', await p.getByText(/«بنزين» 80 ر.ع/).count() > 0 || due <= day);
+await p.locator('.notif-bell').click(); await p.waitForTimeout(200);
+check('تنبيه اقتراب موعد الدفع', await p.getByRole('dialog', { name: 'التنبيهات' }).getByText(/«بنزين» 80 ر.ع/).count() > 0 || due <= day);
+await p.locator('.notif-bell').click(); await p.waitForTimeout(150);
 
 console.log('4) ترحيل الرصيد لشهر جديد');
 const closing = 760 - 254;

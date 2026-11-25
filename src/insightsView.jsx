@@ -260,3 +260,16 @@ function Kv({ k, v, bad }) {
     </div>
   );
 }
+
+// «محاكي التوفير» كقسم مستقل: يحسب التحليل فقط عند فتحه
+export function SimulatorTool({ store, act, notify }) {
+  const r = useMemo(() => analyzeSpending(store, { today: todayISO() }), [store]);
+  const active = store.months.find((m) => m.id === store.activeId);
+  if (r.status === 'empty') return <Card className="p-5 text-center text-sm text-muted">{r.message}</Card>;
+  return (
+    <>
+      <p className="-mt-2 text-sm text-muted">مبني على {monthWord(r.summary.month)}{r.summary.current ? ' (حتى اليوم)' : ''}. تجربة فقط، ولا تتغير بياناتك إلا بتأكيد صريح.</p>
+      <Simulator report={r} active={active} act={act} notify={notify} />
+    </>
+  );
+}

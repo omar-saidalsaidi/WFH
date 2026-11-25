@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import html2pdf from 'html2pdf.js';
+import { loadDeferred } from './deferred.js';
 import {
   Wallet, Plus, Pencil, Check, X, Trash2, Printer, RotateCcw, CircleCheck, Search, Share2, FileText,
   House, ChartPie, ReceiptText, TriangleAlert, Landmark, Smartphone, CreditCard, Users, Building2, HandCoins,
@@ -15,10 +15,11 @@ import {
   Money, DeficitBadge, AccTag, Bar, Card, useModal, useIsDark, RemainChip, RemainBar,
 } from './ui.jsx';
 import { surfaceFor, accentFor, themeVars, summaryVars } from './colors.js';
-import { HeaderCountdown } from './countdownView.jsx';
+import { HeaderCountdown, useMuscatToday } from './countdownView.jsx';
+import { useNotifications, NotificationBell, NotificationCurtain } from './notifyView.jsx';
 import { sortItems, itemState, SORT_MODES, DEFAULT_SORT } from './sorting.js';
 import { monthSummary, monthAlerts, closingBalance, remainingInfo, toBaisa, sumOMR, pctLabel, spendWarning } from './finance.js';
-import { ForecastCard, AlertsCard, PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
+import { PlanActualTable, AnnualView, ToolsTab } from './features.jsx';
 import { MonthReport, AnnualReport, annualText } from './reports.jsx';
 import { applySectionOp } from './sections.js';
 import { ManageSectionsSheet, SectionRenameSheet } from './sectionsView.jsx';
@@ -121,8 +122,16 @@ export default function App() {
       summary, cats, allCats, catMap, groups, cardGroups, accounts, orphan, spent: summary.paid, allocated: summary.planned, remaining: summary.balance, history,
     };
   }, [state]);
-  const alerts = useMemo(() => monthAlerts(state, store, todayISO()), [state, store]);
   const [toolView, setToolView] = useState(null);
+  // تاريخ مسقط واحد مشترك للعداد والتنبيهات (مؤقت واحد فقط)
+  const muscatToday = useMuscatToday();
+  const notif = useNotifications(store, muscatToday);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const headerRef = useRef(null);
+  const toggleNotif = () => {
+    if (notifOpen) { setNotifOpen(false); return; }
+    setNotifOpen(true); notif.readAll(); // الفتح يعيد الجرس للأبيض فوراً
+  };
   const [reportMode, setReportMode] = useState('month');
 
   const act = {
@@ -175,21 +184,22 @@ export default function App() {
   return (
     <MetaContext.Provider value={data.meta}>
     <div className="app-shell min-h-full bg-bg text-ink">
-      <header className="sticky z-30 border-b border-line bg-bg/95 backdrop-blur" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
+      <header ref={headerRef} className="sticky z-30 border-b border-line bg-bg/95 backdrop-blur" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <div className="gutter mx-auto flex max-w-md items-center gap-2 py-2.5">
           <button onClick={() => setMonthSheet(true)} className="min-w-0 flex-1 text-right leading-tight" aria-label={`${data.label}، تغيير الشهر`}>
             <span className="block text-[10px] font-medium text-muted">تتبع مصاريف الراتب</span>
             <span className="flex items-center gap-1 text-[15px] font-extrabold"><span className="min-w-0 break-words">{data.label}</span><ChevronDown size={15} className="shrink-0 text-accent" /></span>
           </button>
-          <HeaderCountdown payDay={store.settings.payDay} />
-          <button onClick={() => { setReportMode('month'); setReport(true); }} aria-label="تصدير / طباعة التقرير" className="flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 px-2 text-[10px] font-bold leading-none text-accent">
-            <FileText size={16} />تصدير / طباعة
+          <HeaderCountdown payDay={store.settings.payDay} today={muscatToday} />
+          <NotificationBell unread={notif.unread} open={notifOpen} onToggle={toggleNotif} />
+          <button onClick={() => { setReportMode('month'); setReport(true); }} aria-label="تصدير / طباعة التقرير" className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-accent/10 text-[8.5px] font-bold leading-[1.05] text-accent">
+            <FileText size={15} /><span className="text-center">تصدير<br />طباعة</span>
           </button>
         </div>
       </header>
 
       <main className="gutter mx-auto flex max-w-md flex-col gap-5 pt-4 pb-28">
-        {tab === 'home' && <HomeTab data={data} store={store} month={state} alerts={alerts} act={act} notify={setToast} openSheet={openSheet} onManageIncome={() => { setToolView('income'); setTab('tools'); }} />}
+        {tab === 'home' && <HomeTab data={data} store={store} month={state} act={act} notify={setToast} openSheet={openSheet} />}
         {tab === 'stats' && <StatsTab data={data} store={store} />}
         {tab === 'tools' && <ToolsTab store={store} month={state} act={act} notify={setToast} view={toolView} setView={setToolView} openReport={(m) => { setReportMode(m); setReport(true); }} />}
         {tab === 'log' && <LogTab data={data} act={act} notify={setToast} onReport={() => setReport(true)} />}
@@ -202,6 +212,7 @@ export default function App() {
           onSave={(tx, name) => { act.addTx(tx); setSheet(null); setToast(`سُجّل ${fmtShort(tx.amount)} ر.ع على ${name}`); }} />
       )}
 
+      {notifOpen && <NotificationCurtain notif={notif} headerRef={headerRef} onClose={() => setNotifOpen(false)} />}
       {report && <ReportModal data={data} store={store} mode={reportMode} onClose={() => { setReport(false); setReportMode('month'); }} notify={setToast} />}
       {monthSheet && (
         <MonthSheet store={store} active={state} onClose={() => setMonthSheet(false)} act={act} notify={setToast} />
@@ -245,7 +256,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 // ================= الرئيسية والبنود =================
 const DEFAULT_OPEN = { fixed: false, daily: true, temp: false, emergency: false, salary: false, applepay: true, card1: false, card2: false };
 
-function HomeTab({ data, store, month, alerts, act, notify, openSheet, onManageIncome }) {
+function HomeTab({ data, store, month, act, notify, openSheet }) {
   const [open, setOpen] = useState(loadOpen);
   const [view, setView] = useState(() => { try { return localStorage.getItem(`${STORAGE_KEY}-view`) || 'group'; } catch (e) { return 'group'; } });
   const [swiped, setSwiped] = useState(null);
@@ -258,7 +269,6 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onManageI
   const sw = spendWarning(data.spent, store.settings.spendLimit);
   const dark = useIsDark();
   const balanceStyle = summaryVars(store.settings.cardColors.balance, dark)?.vars;
-  const salaryStyle = summaryVars(store.settings.cardColors.salary, dark)?.vars;
   const onCardColor = (which) => setCardColor(which);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-open`, JSON.stringify(open)); } catch (e) { /* تجاهل */ } }, [open]);
   useEffect(() => { try { localStorage.setItem(`${STORAGE_KEY}-view`, view); } catch (e) { /* تجاهل */ } }, [view]);
@@ -324,36 +334,10 @@ function HomeTab({ data, store, month, alerts, act, notify, openSheet, onManageI
         )}
       </section>
 
-      <section className="salary-card rounded-3xl border border-hpb bg-gradient-to-bl from-hp1 via-hp1 to-hpsec p-3 text-hpink" style={salaryStyle} aria-label="الراتب الأساسي والدخل">
-        <div className="mb-1.5 flex items-center justify-between">
-          <p className="text-[12px] font-bold text-hpink/75">الراتب والدخل</p>
-          <span className="flex items-center gap-1">
-            <button onClick={onManageIncome} className="h-8 rounded-lg px-2 text-[11px] font-bold text-hpink underline-offset-2 hover:underline">إدارة ←</button>
-            <button onClick={() => onCardColor('salary')} aria-label="لون بطاقة الراتب الأساسي" className="-me-1 grid h-8 w-9 place-items-center rounded-lg text-hpink/70"><Palette size={14} /></button>
-          </span>
-        </div>
-        <dl className="grid grid-cols-3 gap-1.5 text-center">
-          <div className="rounded-2xl bg-hp2/50 px-1 py-2">
-            <dt className="text-[10px] font-bold text-hpink/75">الراتب الأساسي</dt>
-            <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.salary)}</dd>
-          </div>
-          <div className="rounded-2xl border border-dashed border-hpb bg-hp1/70 px-1 py-2">
-            <dt className="text-[10px] font-bold text-hpink/75">الدخل الإضافي</dt>
-            <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.extraIncome)}</dd>
-            <dd className="text-[9px] text-hpink/60">{data.incomes.length ? `${data.incomes.length} مدخلات` : 'لا يوجد'}</dd>
-          </div>
-          <div className="rounded-2xl bg-hp2/50 px-1 py-2">
-            <dt className="text-[10px] font-bold text-hpink/75">إجمالي الدخل</dt>
-            <dd className="num mt-0.5 text-[17px] font-extrabold">{fmtShort(data.totalIncome)}</dd>
-          </div>
-        </dl>
-      </section>
       </div>
 
 
 
-      <ForecastCard s={data.summary} />
-      <AlertsCard alerts={alerts} onOpenItem={(id) => openSheet(id)} />
 
       <div className="flex items-stretch gap-2">
         <div className="grid flex-1 grid-cols-2 gap-1 rounded-2xl border border-line bg-surface p-1" role="tablist" aria-label="طريقة عرض البنود">
@@ -1203,7 +1187,7 @@ function ReportModal({ data, store, mode: initialMode, onClose, notify }) {
     setXl(true);
     try {
       const month = store.months.find((m) => m.id === store.activeId);
-      const blob = mode === 'year' ? annualWorkbook(store, data.period) : monthWorkbook(month, data.meta.cardName, data.meta.sectionName, todayISO());
+      const blob = await (mode === 'year' ? annualWorkbook(store, data.period) : monthWorkbook(month, data.meta.cardName, data.meta.sectionName, todayISO()));
       const r = await shareOrDownload(blob, `${base}.xlsx`, data.label);
       if (r === 'downloaded') notify('تم تنزيل ملف Excel');
     } catch (e) { notify('تعذّر إنشاء ملف Excel'); } finally { setXl(false); }
@@ -1239,6 +1223,7 @@ function ReportModal({ data, store, mode: initialMode, onClose, notify }) {
       const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) n.nodeValue = n.nodeValue.replace(/ر\.ع/g, 'ريال');
       wrap.appendChild(clone);
+      const html2pdf = await loadDeferred('pdf'); // تهيئة مكتبة PDF عند الطلب فقط
       const blob = await html2pdf().set({
         margin: [10, 10, 12, 10],
         filename: fileName,
